@@ -40,10 +40,23 @@ def deepfake_analysis(video_id: int, model_key: str = "default"):
     Call the model API to analyze video for deepfake detection
     Background task that creates its own database session
     """
+    import tempfile
     from app.database import SessionLocal
     
     db = SessionLocal()
+    temp_video_path = None
+    
     try:
+        # Fetch video from database
+        video = db.query(Video).filter(Video.id == video_id).first()
+        if not video:
+            return
+        
+        # Update status to processing
+        video.status = PredictionStatus.PROCESSING.value
+        db.commit()
+        
+        # Build path to uploaded video
         backend_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
         absolute_video_path = os.path.join(backend_dir, video.file_path)
 
@@ -55,16 +68,22 @@ def deepfake_analysis(video_id: int, model_key: str = "default"):
             db.commit()
             return
         
-        # Send the uploaded media file to model service.
+        # Copy to temp location for processing
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as tmp_file:
+            temp_video_path = tmp_file.name
+            with open(absolute_video_path, "rb") as src:
+                tmp_file.write(src.read())
+        
+        # Send the video file to model service
         model_api_url = get_model_api_url(model_key)
 
-        with open(absolute_video_path, "rb") as media_file:
+        with open(temp_video_path, "rb") as media_file:
             response = requests.post(
                 f"{model_api_url}/analyze",
                 data={"model_key": model_key},
                 files={
                     "file": (
-                        Path(absolute_video_path).name,
+                        f"video_{video_id}.mp4",
                         media_file,
                         "application/octet-stream",
                     )
@@ -105,6 +124,13 @@ def deepfake_analysis(video_id: int, model_key: str = "default"):
         })
     
     finally:
+        # Clean up temp file
+        if temp_video_path and os.path.exists(temp_video_path):
+            try:
+                os.remove(temp_video_path)
+            except:
+                pass
+        
         db.commit()
         db.close()
 
