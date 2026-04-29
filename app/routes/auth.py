@@ -59,7 +59,14 @@ async def signup(user_data: UserCreate, db: Session = Depends(get_db)):
     return {
         "access_token": access_token,
         "token_type": "bearer",
-        "user": UserResponse(email=new_user.email, username=new_user.username)
+        "user": UserResponse(
+            id=new_user.id,
+            email=new_user.email,
+            username=new_user.username,
+            role=new_user.role,
+            is_active=new_user.is_active,
+            created_at=new_user.created_at
+        )
     }
 
 @router.post("/login", response_model=Token)
@@ -92,7 +99,14 @@ async def login(credentials: UserLogin, db: Session = Depends(get_db)):
     return {
         "access_token": access_token,
         "token_type": "bearer",
-        "user": UserResponse(email=user.email, username=user.username)
+        "user": UserResponse(
+            id=user.id,
+            email=user.email,
+            username=user.username,
+            role=user.role,
+            is_active=user.is_active,
+            created_at=user.created_at
+        )
     }
 
 @router.get("/me", response_model=UserResponse)
