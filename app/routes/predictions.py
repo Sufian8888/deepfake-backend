@@ -34,6 +34,8 @@ def get_model_api_url(model_key: str | None) -> str:
             continue
         key, value = entry.split("=", 1)
         model_map[key.strip()] = value.strip()
+    
+    return model_map.get(model_key, MODEL_API_URL)
 
 def deepfake_analysis(video_id: int, model_key: str = "default"):
     """

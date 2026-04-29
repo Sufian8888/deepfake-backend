@@ -61,6 +61,7 @@ class VideoResponse(BaseModel):
     is_deepfake: Optional[bool]
     confidence_score: Optional[float]
     prediction_details: Optional[str]
+    cloud_url: Optional[str]
     uploaded_at: datetime
     processed_at: Optional[datetime]
     
