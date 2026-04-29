@@ -3,6 +3,8 @@ import shutil
 from pathlib import Path
 from datetime import datetime
 from app.config import settings
+import cloudinary
+import cloudinary.uploader
 
 def create_upload_directory():
     """Create upload directory if it doesn't exist"""
@@ -52,3 +54,30 @@ def validate_file_type(filename: str) -> str:
         return "audio"
     else:
         raise ValueError(f"Unsupported file type: {ext}")
+
+def upload_to_cloudinary(file_content: bytes, filename: str) -> str:
+    """Upload file to Cloudinary and return URL"""
+    if not settings.CLOUDINARY_CLOUD_NAME or not settings.CLOUDINARY_API_KEY:
+        raise ValueError("Cloudinary credentials not configured")
+    
+    # Configure Cloudinary
+    cloudinary.config(
+        cloud_name=settings.CLOUDINARY_CLOUD_NAME,
+        api_key=settings.CLOUDINARY_API_KEY,
+        api_secret=settings.CLOUDINARY_API_SECRET
+    )
+    
+    # Create temp file for upload
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    name, ext = os.path.splitext(filename)
+    unique_filename = f"deepfake/{timestamp}_{name}{ext}"
+    
+    # Upload to Cloudinary
+    response = cloudinary.uploader.upload(
+        file_content,
+        public_id=os.path.splitext(unique_filename)[0],
+        resource_type="auto",
+        folder="deepfake-detection"
+    )
+    
+    return response.get("secure_url", response.get("url"))

@@ -56,23 +56,42 @@ def deepfake_analysis(video_id: int, model_key: str = "default"):
         video.status = PredictionStatus.PROCESSING.value
         db.commit()
         
-        # Build path to uploaded video
-        backend_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-        absolute_video_path = os.path.join(backend_dir, video.file_path)
-
-        if not os.path.exists(absolute_video_path):
-            video.status = PredictionStatus.FAILED.value
-            video.prediction_details = json.dumps({
-                "error": "Uploaded video file not found on backend server"
-            })
-            db.commit()
-            return
-        
-        # Copy to temp location for processing
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as tmp_file:
-            temp_video_path = tmp_file.name
-            with open(absolute_video_path, "rb") as src:
-                tmp_file.write(src.read())
+        # Download from Cloudinary if available, otherwise use local file
+        temp_video_path = None
+        if video.cloud_url:
+            # Download from Cloudinary
+            try:
+                response = requests.get(video.cloud_url, timeout=60)
+                response.raise_for_status()
+                
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as tmp_file:
+                    temp_video_path = tmp_file.name
+                    tmp_file.write(response.content)
+            except Exception as e:
+                video.status = PredictionStatus.FAILED.value
+                video.prediction_details = json.dumps({
+                    "error": f"Failed to download video from Cloudinary: {str(e)}"
+                })
+                db.commit()
+                return
+        else:
+            # Fall back to local file if cloud_url is not available
+            backend_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+            absolute_video_path = os.path.join(backend_dir, video.file_path)
+            
+            if not os.path.exists(absolute_video_path):
+                video.status = PredictionStatus.FAILED.value
+                video.prediction_details = json.dumps({
+                    "error": "Uploaded video file not found on backend server"
+                })
+                db.commit()
+                return
+            
+            # Copy to temp location for processing
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as tmp_file:
+                temp_video_path = tmp_file.name
+                with open(absolute_video_path, "rb") as src:
+                    tmp_file.write(src.read())
         
         # Send the video file to model service
         model_api_url = get_model_api_url(model_key)

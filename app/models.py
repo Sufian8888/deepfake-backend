@@ -43,6 +43,7 @@ class Video(Base):
     filename = Column(String(255), nullable=False)
     original_filename = Column(String(255), nullable=False)
     file_path = Column(String(512), nullable=False)
+    cloud_url = Column(String(1024), nullable=True)  # Cloudinary URL for persistent storage
     file_size = Column(Integer, nullable=False)
     file_type = Column(String(50), default="video", nullable=False)
     

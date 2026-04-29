@@ -7,7 +7,7 @@ from app.database import get_db
 from app.models import User, Video, PredictionStatus
 from app.schemas import VideoResponse
 from app.auth import get_current_user
-from app.utils import save_upload_file, get_file_size, validate_file_type
+from app.utils import save_upload_file, get_file_size, validate_file_type, upload_to_cloudinary
 from app.config import settings
 
 router = APIRouter()
@@ -39,7 +39,16 @@ async def upload_video(
             detail=f"File too large. Max size: {settings.MAX_FILE_SIZE / 1024 / 1024}MB"
         )
     
-    # Reset file pointer and save
+    # Upload to Cloudinary
+    try:
+        cloud_url = upload_to_cloudinary(content, file.filename)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to upload video: {str(e)}"
+        )
+    
+    # Reset file pointer and save local copy as backup
     await file.seek(0)
     file_path = save_upload_file(file, file.filename)
     
@@ -49,6 +58,7 @@ async def upload_video(
         filename=os.path.basename(file_path),
         original_filename=file.filename,
         file_path=file_path,
+        cloud_url=cloud_url,
         file_size=file_size,
         file_type=file_type,
         status=PredictionStatus.PENDING.value
