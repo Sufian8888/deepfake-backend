@@ -3,6 +3,7 @@ Database initialization script
 Creates default admin user if it doesn't exist in PostgreSQL
 """
 from sqlalchemy.orm import Session
+from sqlalchemy import text
 from app.database import SessionLocal, Base, engine
 from app.models import User, UserRole
 from app.auth import get_password_hash
@@ -17,6 +18,19 @@ def init_db():
         # Create all tables
         Base.metadata.create_all(bind=engine)
         logger.info("✅ Created all database tables")
+        
+        # Add missing columns to existing tables
+        try:
+            with engine.connect() as connection:
+                # Add cloud_url column to videos table if it doesn't exist
+                connection.execute(text("""
+                    ALTER TABLE videos 
+                    ADD COLUMN IF NOT EXISTS cloud_url VARCHAR(1024) NULL
+                """))
+                connection.commit()
+                logger.info("✅ Added cloud_url column to videos table")
+        except Exception as e:
+            logger.info(f"ℹ️  cloud_url column already exists or error: {str(e)}")
         
         # Get database session
         db: Session = SessionLocal()
