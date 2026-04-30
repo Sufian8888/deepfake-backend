@@ -39,14 +39,8 @@ async def upload_video(
             detail=f"File too large. Max size: {settings.MAX_FILE_SIZE / 1024 / 1024}MB"
         )
     
-    # Upload to Cloudinary
-    try:
-        cloud_url = upload_to_cloudinary(content, file.filename)
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to upload video: {str(e)}"
-        )
+    # Upload to Cloudinary (optional - if credentials not set, returns None)
+    cloud_url = upload_to_cloudinary(content, file.filename)
     
     # Reset file pointer and save local copy as backup
     await file.seek(0)
