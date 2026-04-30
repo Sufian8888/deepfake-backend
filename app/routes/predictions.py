@@ -153,25 +153,35 @@ def deepfake_analysis(video_id: int, model_key: str = "default"):
             return
         
         if response.status_code == 200:
-            logger.info(f"✅ Analysis successful!")
-            result = response.json()
-            analysis_details = result.get("analysis_details", {})
-            analysis_details["model_key"] = model_key
-            
-            # Update video with results
-            logger.info(f"💾 Saving results to database...")
-            video.status = PredictionStatus.COMPLETED.value
-            video.is_deepfake = result.get("is_deepfake", False)
-            video.confidence_score = result.get("confidence_score", 0.0)
-            video.prediction_details = json.dumps(analysis_details)
-            video.processed_at = datetime.utcnow()
-            logger.info(f"✅ Results saved: deepfake={video.is_deepfake}, confidence={video.confidence_score}")
+            try:
+                logger.info(f"✅ Analysis successful! Status: {response.status_code}")
+                logger.info(f"📦 Response content length: {len(response.content)} bytes")
+                result = response.json()
+                analysis_details = result.get("analysis_details", {})
+                analysis_details["model_key"] = model_key
+                
+                # Update video with results
+                logger.info(f"💾 Saving results to database...")
+                video.status = PredictionStatus.COMPLETED.value
+                video.is_deepfake = result.get("is_deepfake", False)
+                video.confidence_score = result.get("confidence_score", 0.0)
+                video.prediction_details = json.dumps(analysis_details)
+                video.processed_at = datetime.utcnow()
+                logger.info(f"✅ Results saved: deepfake={video.is_deepfake}, confidence={video.confidence_score}")
+            except ValueError as e:
+                logger.error(f"❌ Invalid JSON response: {str(e)}")
+                logger.error(f"Response text: {response.text[:200]}")
+                video.status = PredictionStatus.FAILED.value
+                video.prediction_details = json.dumps({
+                    "error": f"Model API returned invalid JSON: {str(e)}"
+                })
         else:
-            logger.error(f"❌ Model API error: {response.status_code}")
+            logger.error(f"❌ Model API error: HTTP {response.status_code}")
+            logger.error(f"Response text: {response.text}")
             # Model API error
             video.status = PredictionStatus.FAILED.value
             video.prediction_details = json.dumps({
-                "error": f"Model API error: {response.text}"
+                "error": f"Model API returned HTTP {response.status_code}: {response.text[:100]}"
             })
     
     except requests.exceptions.RequestException as e:
