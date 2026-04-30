@@ -5,11 +5,15 @@ import json
 import requests
 import os
 from pathlib import Path
+import logging
 
 from app.database import get_db
 from app.models import User, Video, PredictionStatus
 from app.schemas import PredictionResult, VideoResponse
 from app.auth import get_current_user
+
+# Setup logging
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -45,22 +49,30 @@ def deepfake_analysis(video_id: int, model_key: str = "default"):
     import tempfile
     from app.database import SessionLocal
     
+    logger.info(f"🎬 BACKGROUND TASK STARTED: video_id={video_id}, model_key={model_key}")
+    
     db = SessionLocal()
     temp_video_path = None
     
     try:
         # Fetch video from database
+        logger.info(f"📁 Fetching video {video_id} from database...")
         video = db.query(Video).filter(Video.id == video_id).first()
         if not video:
+            logger.error(f"❌ Video {video_id} not found!")
             return
         
+        logger.info(f"✅ Video found: {video.original_filename}")
+        
         # Update status to processing
+        logger.info(f"⏳ Setting status to PROCESSING...")
         video.status = PredictionStatus.PROCESSING.value
         db.commit()
         
         # Download from Cloudinary if available, otherwise use local file
         temp_video_path = None
         if video.cloud_url:
+            logger.info(f"☁️ Downloading from Cloudinary: {video.cloud_url[:50]}...")
             # Download from Cloudinary
             try:
                 response = requests.get(video.cloud_url, timeout=60)
@@ -69,7 +81,9 @@ def deepfake_analysis(video_id: int, model_key: str = "default"):
                 with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as tmp_file:
                     temp_video_path = tmp_file.name
                     tmp_file.write(response.content)
+                logger.info(f"✅ Downloaded to temp: {temp_video_path}")
             except Exception as e:
+                logger.error(f"❌ Cloudinary download failed: {str(e)}")
                 video.status = PredictionStatus.FAILED.value
                 video.prediction_details = json.dumps({
                     "error": f"Failed to download video from Cloudinary: {str(e)}"
@@ -77,11 +91,14 @@ def deepfake_analysis(video_id: int, model_key: str = "default"):
                 db.commit()
                 return
         else:
+            logger.info(f"📂 Using local file: {video.file_path}")
             # Fall back to local file if cloud_url is not available
             backend_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
             absolute_video_path = os.path.join(backend_dir, video.file_path)
             
+            logger.info(f"📍 Full path: {absolute_video_path}")
             if not os.path.exists(absolute_video_path):
+                logger.error(f"❌ Local file not found: {absolute_video_path}")
                 video.status = PredictionStatus.FAILED.value
                 video.prediction_details = json.dumps({
                     "error": "Uploaded video file not found on backend server"
@@ -89,16 +106,21 @@ def deepfake_analysis(video_id: int, model_key: str = "default"):
                 db.commit()
                 return
             
+            logger.info(f"✅ Local file found, copying to temp...")
             # Copy to temp location for processing
             with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as tmp_file:
                 temp_video_path = tmp_file.name
                 with open(absolute_video_path, "rb") as src:
                     tmp_file.write(src.read())
+            logger.info(f"✅ Copied to temp: {temp_video_path}")
         
         # Send the video file to model service
+        logger.info(f"🔗 Getting model API URL for: {model_key}")
         model_api_url = get_model_api_url(model_key)
+        logger.info(f"🌐 Model API URL: {model_api_url}")
 
         try:
+            logger.info(f"📤 Sending video to model API: {model_api_url}/analyze")
             with open(temp_video_path, "rb") as media_file:
                 response = requests.post(
                     f"{model_api_url}/analyze",
@@ -112,7 +134,9 @@ def deepfake_analysis(video_id: int, model_key: str = "default"):
                     },
                     timeout=600,  # 10 minutes timeout for large files
                 )
-        except requests.exceptions.Timeout:
+            logger.info(f"✅ Model API responded with status: {response.status_code}")
+        except requests.exceptions.Timeout as e:
+            logger.error(f"❌ Timeout connecting to model API: {str(e)}")
             video.status = PredictionStatus.FAILED.value
             video.prediction_details = json.dumps({
                 "error": "Model API request timed out (processing took too long)"
@@ -120,6 +144,7 @@ def deepfake_analysis(video_id: int, model_key: str = "default"):
             db.commit()
             return
         except requests.exceptions.ConnectionError as e:
+            logger.error(f"❌ Connection error to model API: {str(e)}")
             video.status = PredictionStatus.FAILED.value
             video.prediction_details = json.dumps({
                 "error": f"Cannot connect to model API: {str(e)}"
@@ -128,17 +153,21 @@ def deepfake_analysis(video_id: int, model_key: str = "default"):
             return
         
         if response.status_code == 200:
+            logger.info(f"✅ Analysis successful!")
             result = response.json()
             analysis_details = result.get("analysis_details", {})
             analysis_details["model_key"] = model_key
             
             # Update video with results
+            logger.info(f"💾 Saving results to database...")
             video.status = PredictionStatus.COMPLETED.value
             video.is_deepfake = result.get("is_deepfake", False)
             video.confidence_score = result.get("confidence_score", 0.0)
             video.prediction_details = json.dumps(analysis_details)
             video.processed_at = datetime.utcnow()
+            logger.info(f"✅ Results saved: deepfake={video.is_deepfake}, confidence={video.confidence_score}")
         else:
+            logger.error(f"❌ Model API error: {response.status_code}")
             # Model API error
             video.status = PredictionStatus.FAILED.value
             video.prediction_details = json.dumps({
@@ -147,6 +176,7 @@ def deepfake_analysis(video_id: int, model_key: str = "default"):
     
     except requests.exceptions.RequestException as e:
         # Connection error
+        logger.error(f"❌ Request exception: {str(e)}")
         video.status = PredictionStatus.FAILED.value
         video.prediction_details = json.dumps({
             "error": f"Failed to connect to model API: {str(e)}"
@@ -154,6 +184,7 @@ def deepfake_analysis(video_id: int, model_key: str = "default"):
     
     except Exception as e:
         # Other errors
+        logger.error(f"❌ Unexpected error: {str(e)}", exc_info=True)
         video.status = PredictionStatus.FAILED.value
         video.prediction_details = json.dumps({
             "error": f"Analysis failed: {str(e)}"
@@ -161,14 +192,18 @@ def deepfake_analysis(video_id: int, model_key: str = "default"):
     
     finally:
         # Clean up temp file
+        logger.info(f"🧹 Cleaning up temp file...")
         if temp_video_path and os.path.exists(temp_video_path):
             try:
                 os.remove(temp_video_path)
-            except:
-                pass
+                logger.info(f"✅ Temp file deleted: {temp_video_path}")
+            except Exception as e:
+                logger.error(f"❌ Error deleting temp file: {e}")
         
+        logger.info(f"💾 Committing database changes...")
         db.commit()
         db.close()
+        logger.info(f"✅ Background task completed for video {video_id}")
 
 @router.post("/{video_id}/analyze", response_model=dict)
 async def start_analysis(
