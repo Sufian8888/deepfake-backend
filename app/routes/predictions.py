@@ -98,19 +98,34 @@ def deepfake_analysis(video_id: int, model_key: str = "default"):
         # Send the video file to model service
         model_api_url = get_model_api_url(model_key)
 
-        with open(temp_video_path, "rb") as media_file:
-            response = requests.post(
-                f"{model_api_url}/analyze",
-                data={"model_key": model_key},
-                files={
-                    "file": (
-                        f"video_{video_id}.mp4",
-                        media_file,
-                        "application/octet-stream",
-                    )
-                },
-                timeout=300,  # 5 minutes timeout
-            )
+        try:
+            with open(temp_video_path, "rb") as media_file:
+                response = requests.post(
+                    f"{model_api_url}/analyze",
+                    data={"model_key": model_key},
+                    files={
+                        "file": (
+                            f"video_{video_id}.mp4",
+                            media_file,
+                            "application/octet-stream",
+                        )
+                    },
+                    timeout=600,  # 10 minutes timeout for large files
+                )
+        except requests.exceptions.Timeout:
+            video.status = PredictionStatus.FAILED.value
+            video.prediction_details = json.dumps({
+                "error": "Model API request timed out (processing took too long)"
+            })
+            db.commit()
+            return
+        except requests.exceptions.ConnectionError as e:
+            video.status = PredictionStatus.FAILED.value
+            video.prediction_details = json.dumps({
+                "error": f"Cannot connect to model API: {str(e)}"
+            })
+            db.commit()
+            return
         
         if response.status_code == 200:
             result = response.json()
