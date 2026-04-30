@@ -58,11 +58,41 @@ class Video(Base):
     thumbnail_base64 = Column(Text, nullable=True)  # Base64 encoded thumbnail
     annotated_frames_base64 = Column(JSON, default=list, nullable=True)  # List of base64 frames
     
-    # Relationship
+    # Relationships
     user = relationship("User", back_populates="videos")
+    frames = relationship("Frame", back_populates="video", cascade="all, delete-orphan")
     
     def __repr__(self):
         return f"<Video(id={self.id}, user_id={self.user_id}, filename={self.filename})>"
+
+# SQLAlchemy Frame Model - Stores individual frame analysis
+class Frame(Base):
+    __tablename__ = "frames"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    video_id = Column(Integer, ForeignKey("videos.id"), nullable=False, index=True)
+    frame_number = Column(Integer, nullable=False)  # 0-based index
+    timestamp = Column(Float, nullable=True)  # Timestamp in seconds
+    
+    # Frame classification
+    is_fake = Column(Boolean, nullable=True)  # True if deepfake detected
+    is_suspicious = Column(Boolean, nullable=True)  # True if suspicious
+    confidence_score = Column(Float, nullable=True)  # Confidence 0-100
+    
+    # Image storage
+    image_base64 = Column(Text, nullable=True)  # Base64 encoded frame image
+    thumbnail_base64 = Column(Text, nullable=True)  # Smaller thumbnail
+    
+    # Analysis details
+    analysis_details = Column(JSON, nullable=True)  # Additional analysis metadata
+    
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    
+    # Relationship
+    video = relationship("Video", back_populates="frames")
+    
+    def __repr__(self):
+        return f"<Frame(id={self.id}, video_id={self.video_id}, frame={self.frame_number})>"
 
 # Helper functions for Base64 encoding
 def encode_image_to_base64(image_bytes: bytes) -> str:

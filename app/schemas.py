@@ -51,6 +51,28 @@ class VideoBase(BaseModel):
     original_filename: str
     file_type: str
 
+class FrameAnalysisDetail(BaseModel):
+    """Individual frame analysis result"""
+    frame_number: int
+    timestamp: Optional[float]
+    is_fake: Optional[bool]
+    is_suspicious: Optional[bool]
+    confidence_score: Optional[float]
+    image_base64: Optional[str]  # Base64 encoded frame
+    thumbnail_base64: Optional[str]  # Smaller thumbnail
+    analysis_details: Optional[dict]
+    
+    class Config:
+        from_attributes = True
+
+class FrameAnalysisSummary(BaseModel):
+    """Summary of frame-level analysis"""
+    total_frames: int
+    fake_frames: int  # Count of frames detected as fake
+    real_frames: int  # Count of frames detected as real
+    suspicious_frames: int  # Count of suspicious frames
+    frame_details: List[FrameAnalysisDetail]
+
 class VideoResponse(BaseModel):
     id: int
     filename: str
@@ -62,6 +84,7 @@ class VideoResponse(BaseModel):
     confidence_score: Optional[float]
     prediction_details: Optional[str]
     cloud_url: Optional[str]
+    frame_analysis: Optional[FrameAnalysisSummary]
     uploaded_at: datetime
     processed_at: Optional[datetime]
     
