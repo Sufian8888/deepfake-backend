@@ -8,7 +8,7 @@ from pathlib import Path
 import logging
 
 from app.database import get_db
-from app.models import User, Video, PredictionStatus
+from app.models import User, Video, Frame, PredictionStatus
 from app.schemas import PredictionResult, VideoResponse
 from app.auth import get_current_user
 
@@ -40,6 +40,54 @@ def get_model_api_url(model_key: str | None) -> str:
         model_map[key.strip()] = value.strip()
     
     return model_map.get(model_key, MODEL_API_URL)
+
+def save_frame_analysis(db: Session, video_id: int, frame_analysis: dict):
+    """
+    Save frame-level analysis data from model API response to database.
+    
+    Expected frame_analysis structure:
+    {
+        "frame_details": [
+            {
+                "frame_number": 0,
+                "timestamp": 0.0,
+                "is_fake": bool,
+                "is_suspicious": bool,
+                "confidence_score": float,
+                "image_base64": str (optional),
+            },
+            ...
+        ]
+    }
+    """
+    try:
+        frame_details = frame_analysis.get("frame_details", [])
+        logger.info(f"💾 Saving {len(frame_details)} frame records to database...")
+        
+        # Delete old frames for this video
+        db.query(Frame).filter(Frame.video_id == video_id).delete()
+        logger.info(f"🗑️ Deleted old frame records for video {video_id}")
+        
+        # Save each frame
+        for frame_data in frame_details:
+            frame = Frame(
+                video_id=video_id,
+                frame_number=frame_data.get("frame_number", 0),
+                timestamp=frame_data.get("timestamp"),
+                is_fake=frame_data.get("is_fake"),
+                is_suspicious=frame_data.get("is_suspicious"),
+                confidence_score=frame_data.get("confidence_score"),
+                image_base64=frame_data.get("image_base64"),
+                thumbnail_base64=frame_data.get("thumbnail_base64"),
+                analysis_details=frame_data.get("analysis_details")
+            )
+            db.add(frame)
+        
+        db.commit()
+        logger.info(f"✅ Saved all {len(frame_details)} frame records")
+    except Exception as e:
+        logger.error(f"❌ Error saving frame analysis: {str(e)}", exc_info=True)
+        db.rollback()
 
 def deepfake_analysis(video_id: int, model_key: str = "default"):
     """
@@ -176,6 +224,12 @@ def deepfake_analysis(video_id: int, model_key: str = "default"):
                 analysis_details = result.get("analysis_details", {})
                 analysis_details["model_key"] = model_key
                 
+                # Save frame-level analysis if provided
+                frame_analysis = result.get("frame_analysis")
+                if frame_analysis:
+                    save_frame_analysis(db, video_id, frame_analysis)
+                    logger.info(f"✅ Frame analysis saved")
+                
                 # Update video with results
                 logger.info(f"💾 Saving results to database...")
                 video.status = PredictionStatus.COMPLETED.value
@@ -311,6 +365,40 @@ async def get_prediction_result(
     # Parse prediction details
     analysis_details = json.loads(video.prediction_details) if video.prediction_details else {}
     
+    # Build frame analysis summary from database
+    frame_analysis = None
+    frames = db.query(Frame).filter(Frame.video_id == video_id).order_by(Frame.frame_number).all()
+    
+    if frames:
+        logger.info(f"📊 Building frame analysis summary from {len(frames)} frame records...")
+        
+        fake_count = sum(1 for f in frames if f.is_fake)
+        real_count = sum(1 for f in frames if f.is_fake is False)
+        suspicious_count = sum(1 for f in frames if f.is_suspicious)
+        
+        frame_details = [
+            {
+                "frame_number": f.frame_number,
+                "timestamp": f.timestamp,
+                "is_fake": f.is_fake,
+                "is_suspicious": f.is_suspicious,
+                "confidence_score": f.confidence_score,
+                "image_base64": f.image_base64,
+                "thumbnail_base64": f.thumbnail_base64,
+                "analysis_details": f.analysis_details
+            }
+            for f in frames
+        ]
+        
+        frame_analysis = {
+            "total_frames": len(frames),
+            "fake_frames": fake_count,
+            "real_frames": real_count,
+            "suspicious_frames": suspicious_count,
+            "frame_details": frame_details
+        }
+        logger.info(f"✅ Frame summary: {fake_count} fake, {real_count} real, {suspicious_count} suspicious")
+    
     # Generate AI suggestions
     suggestions = []
     if video.is_deepfake:
@@ -332,6 +420,7 @@ async def get_prediction_result(
         "is_deepfake": video.is_deepfake,
         "confidence_score": video.confidence_score,
         "analysis_details": analysis_details,
+        "frame_analysis": frame_analysis,
         "suggestions": suggestions
     }
 

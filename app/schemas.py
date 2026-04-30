@@ -96,6 +96,7 @@ class PredictionResult(BaseModel):
     is_deepfake: bool
     confidence_score: float
     analysis_details: dict
+    frame_analysis: Optional[FrameAnalysisSummary]
     suggestions: List[str]
 
 # Dashboard Schemas
