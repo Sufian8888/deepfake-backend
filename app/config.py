@@ -6,8 +6,8 @@ class Settings(BaseSettings):
     DATABASE_URL: str = "postgresql://user:password@localhost:5432/deepfake_db"
     
     # CORS / External service URLs
-    CORS_ORIGINS: str = "http://localhost:3000"
-    MODEL_API_URL: str = "http://localhost:5000"
+    CORS_ORIGINS: str = "https://deepfake-detection-ovj5.onrender.com"
+    MODEL_API_URL: str = "https://deepfake-model-vttw.onrender.com"
     MODEL_API_URLS: str = ""
     
     # JWT Settings
