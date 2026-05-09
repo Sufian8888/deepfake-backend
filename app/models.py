@@ -62,6 +62,36 @@ class Video(Base):
     user = relationship("User", back_populates="videos")
     frames = relationship("Frame", back_populates="video", cascade="all, delete-orphan")
     
+    @property
+    def frame_analysis(self):
+        """Construct frame analysis summary from related frames"""
+        if not self.frames:
+            return None
+        
+        fake_frames = sum(1 for f in self.frames if f.is_fake)
+        real_frames = sum(1 for f in self.frames if f.is_fake is False)
+        suspicious_frames = sum(1 for f in self.frames if f.is_suspicious)
+        
+        return {
+            "total_frames": len(self.frames),
+            "fake_frames": fake_frames,
+            "real_frames": real_frames,
+            "suspicious_frames": suspicious_frames,
+            "frame_details": [
+                {
+                    "frame_number": f.frame_number,
+                    "timestamp": f.timestamp,
+                    "is_fake": f.is_fake,
+                    "is_suspicious": f.is_suspicious,
+                    "confidence_score": f.confidence_score,
+                    "image_base64": f.image_base64,
+                    "thumbnail_base64": f.thumbnail_base64,
+                    "analysis_details": f.analysis_details
+                }
+                for f in self.frames
+            ]
+        }
+    
     def __repr__(self):
         return f"<Video(id={self.id}, user_id={self.user_id}, filename={self.filename})>"
 
