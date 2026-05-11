@@ -84,12 +84,22 @@ class VideoResponse(BaseModel):
     confidence_score: Optional[float]
     prediction_details: Optional[str]
     cloud_url: Optional[str]
-    frame_analysis: Optional[FrameAnalysisSummary]
+    frame_analysis: Optional[FrameAnalysisSummary] = None
     uploaded_at: datetime
     processed_at: Optional[datetime]
     
     class Config:
         from_attributes = True
+    
+    @classmethod
+    def from_orm(cls, obj):
+        data = obj.__dict__.copy()
+        # Safely get frame_analysis from property
+        try:
+            data['frame_analysis'] = obj.frame_analysis
+        except:
+            data['frame_analysis'] = None
+        return cls(**data)
 
 # Prediction Schemas
 class PredictionResult(BaseModel):
