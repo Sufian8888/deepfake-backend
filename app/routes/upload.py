@@ -62,7 +62,24 @@ async def upload_video(
     db.commit()
     db.refresh(new_video)
     
-    return new_video
+    # Convert ORM object to schema, handling frame_analysis property
+    video_dict = {
+        'id': new_video.id,
+        'filename': new_video.filename,
+        'original_filename': new_video.original_filename,
+        'file_size': new_video.file_size,
+        'file_type': new_video.file_type,
+        'status': new_video.status,
+        'is_deepfake': new_video.is_deepfake,
+        'confidence_score': new_video.confidence_score,
+        'prediction_details': new_video.prediction_details,
+        'cloud_url': new_video.cloud_url,
+        'uploaded_at': new_video.uploaded_at,
+        'processed_at': new_video.processed_at,
+        'frame_analysis': new_video.frame_analysis  # Explicitly get property
+    }
+    
+    return VideoResponse(**video_dict)
 
 @router.get("/videos", response_model=list[VideoResponse])
 async def get_user_videos(
@@ -76,7 +93,27 @@ async def get_user_videos(
         Video.user_id == current_user.id
     ).order_by(Video.uploaded_at.desc()).offset(skip).limit(limit).all()
     
-    return videos
+    # Convert ORM objects to schemas, handling frame_analysis property
+    result = []
+    for video in videos:
+        video_dict = {
+            'id': video.id,
+            'filename': video.filename,
+            'original_filename': video.original_filename,
+            'file_size': video.file_size,
+            'file_type': video.file_type,
+            'status': video.status,
+            'is_deepfake': video.is_deepfake,
+            'confidence_score': video.confidence_score,
+            'prediction_details': video.prediction_details,
+            'cloud_url': video.cloud_url,
+            'uploaded_at': video.uploaded_at,
+            'processed_at': video.processed_at,
+            'frame_analysis': video.frame_analysis  # Explicitly get property
+        }
+        result.append(VideoResponse(**video_dict))
+    
+    return result
 
 @router.get("/videos/{video_id}", response_model=VideoResponse)
 async def get_video(
@@ -96,7 +133,24 @@ async def get_video(
             detail="Video not found"
         )
     
-    return video
+    # Convert ORM object to schema, handling frame_analysis property
+    video_dict = {
+        'id': video.id,
+        'filename': video.filename,
+        'original_filename': video.original_filename,
+        'file_size': video.file_size,
+        'file_type': video.file_type,
+        'status': video.status,
+        'is_deepfake': video.is_deepfake,
+        'confidence_score': video.confidence_score,
+        'prediction_details': video.prediction_details,
+        'cloud_url': video.cloud_url,
+        'uploaded_at': video.uploaded_at,
+        'processed_at': video.processed_at,
+        'frame_analysis': video.frame_analysis  # Explicitly get property
+    }
+    
+    return VideoResponse(**video_dict)
 
 @router.delete("/videos/{video_id}")
 async def delete_video(

@@ -11,6 +11,7 @@ from app.database import get_db
 from app.models import User, Video, Frame, PredictionStatus
 from app.schemas import PredictionResult, VideoResponse
 from app.auth import get_current_user
+from app.config import settings
 
 # Setup logging
 logger = logging.getLogger(__name__)
@@ -18,7 +19,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 # Model API URL
-MODEL_API_URL = os.getenv("MODEL_API_URL", "http://localhost:5000")
+MODEL_API_URL = settings.MODEL_API_URL
 
 
 def get_model_api_url(model_key: str | None) -> str:
@@ -30,7 +31,7 @@ def get_model_api_url(model_key: str | None) -> str:
     if not model_key:
         return MODEL_API_URL
 
-    raw_mapping = os.getenv("MODEL_API_URLS", "")
+    raw_mapping = settings.MODEL_API_URLS
     model_map = {}
     for entry in raw_mapping.split(","):
         entry = entry.strip()
@@ -444,6 +445,8 @@ async def list_available_models(
                 {"key": "e1-train-1", "label": "e1-train-1.pth"},
                 {"key": "e2-train-1", "label": "e2-train-1.pth"},
                 {"key": "e5-train-1", "label": "e5-train-1.pth"},
+                {"key": "deepfake_master_model", "label": "deepfake_master_model.pth"},
+                {"key": "deepfake_master_model(1)", "label": "deepfake_master_model(1).pth"},
                 {"key": "folders_model_best", "label": "folders_model_best.pth"},
             ]
         }

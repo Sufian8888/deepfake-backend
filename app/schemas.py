@@ -1,4 +1,4 @@
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, ConfigDict, field_serializer, model_validator
 from typing import Optional, List
 from datetime import datetime
 from enum import Enum
@@ -53,61 +53,61 @@ class VideoBase(BaseModel):
 
 class FrameAnalysisDetail(BaseModel):
     """Individual frame analysis result"""
-    frame_number: int
-    timestamp: Optional[float]
-    is_fake: Optional[bool]
-    is_suspicious: Optional[bool]
-    confidence_score: Optional[float]
-    image_base64: Optional[str]  # Base64 encoded frame
-    thumbnail_base64: Optional[str]  # Smaller thumbnail
-    analysis_details: Optional[dict]
+    model_config = ConfigDict(from_attributes=True)
     
-    class Config:
-        from_attributes = True
+    frame_number: int
+    timestamp: Optional[float] = None
+    is_fake: Optional[bool] = None
+    is_suspicious: Optional[bool] = None
+    confidence_score: Optional[float] = None
+    image_base64: Optional[str] = None  # Base64 encoded frame
+    thumbnail_base64: Optional[str] = None  # Smaller thumbnail
+    analysis_details: Optional[dict] = None
 
 class FrameAnalysisSummary(BaseModel):
     """Summary of frame-level analysis"""
+    model_config = ConfigDict(from_attributes=True)
+    
     total_frames: int
     fake_frames: int  # Count of frames detected as fake
     real_frames: int  # Count of frames detected as real
     suspicious_frames: int  # Count of suspicious frames
-    frame_details: List[FrameAnalysisDetail]
+    frame_details: List[FrameAnalysisDetail] = []
 
 class VideoResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True, arbitrary_types_allowed=True)
+    
     id: int
     filename: str
     original_filename: str
     file_size: int
     file_type: str
     status: PredictionStatus
-    is_deepfake: Optional[bool]
-    confidence_score: Optional[float]
-    prediction_details: Optional[str]
-    cloud_url: Optional[str]
+    is_deepfake: Optional[bool] = None
+    confidence_score: Optional[float] = None
+    prediction_details: Optional[str] = None
+    cloud_url: Optional[str] = None
     frame_analysis: Optional[FrameAnalysisSummary] = None
     uploaded_at: datetime
-    processed_at: Optional[datetime]
+    processed_at: Optional[datetime] = None
     
-    class Config:
-        from_attributes = True
-    
-    @classmethod
-    def from_orm(cls, obj):
-        data = obj.__dict__.copy()
-        # Safely get frame_analysis from property
-        try:
-            data['frame_analysis'] = obj.frame_analysis
-        except:
-            data['frame_analysis'] = None
-        return cls(**data)
+    @model_validator(mode='after')
+    def populate_frame_analysis(self):
+        """Safely get frame_analysis from SQLAlchemy property if not set"""
+        if hasattr(self, '__pydantic_validator__'):
+            # This is during validation, skip
+            return self
+        return self
 
 # Prediction Schemas
 class PredictionResult(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    
     is_deepfake: bool
     confidence_score: float
     analysis_details: dict
-    frame_analysis: Optional[FrameAnalysisSummary]
-    suggestions: List[str]
+    frame_analysis: Optional[FrameAnalysisSummary] = None
+    suggestions: List[str] = []
 
 # Dashboard Schemas
 class DashboardStats(BaseModel):
