@@ -1,5 +1,7 @@
 from pydantic_settings import BaseSettings
 from functools import lru_cache
+import os
+from pathlib import Path
 
 class Settings(BaseSettings):
     # Database - PostgreSQL (with Neon as primary)
@@ -7,7 +9,7 @@ class Settings(BaseSettings):
     
     # CORS / External service URLs
     CORS_ORIGINS: str = "https://deepfake-detection-ovj5.onrender.com"
-    MODEL_API_URL: str = "https://deepfake-model-vttw.onrender.com"
+    MODEL_API_URL: str = "https://softwareengineer26-deepfake-model.hf.space"
     MODEL_API_URLS: str = ""
     
     # JWT Settings
@@ -20,7 +22,7 @@ class Settings(BaseSettings):
     ADMIN_PASSWORD: str = "admin123"
     
     # File Upload
-    UPLOAD_DIR: str = "uploads"
+    UPLOAD_DIR: str = str(Path(__file__).parent.parent / "uploads")
     MAX_FILE_SIZE: int = 104857600  # 100MB
     
     # Cloudinary Configuration
