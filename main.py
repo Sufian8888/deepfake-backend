@@ -8,8 +8,7 @@ import time
 from starlette.requests import Request
 
 from app.init_db import init_db
-from app.routes import auth, upload, predictions, dashboard, admin, billing
-from app.routes import auth, upload, predictions, dashboard, admin, faq_chat, chatbot
+from app.routes import auth, upload, predictions, dashboard, admin, billing, contact, faq_chat, chatbot
 from app.config import settings
 
 
@@ -77,6 +76,7 @@ app.include_router(admin.router, prefix="/api/admin", tags=["Admin"])
 app.include_router(billing.router, prefix="/api/billing", tags=["Billing"])
 app.include_router(faq_chat.router, prefix="/api/faq-chat", tags=["FAQ Chat"])
 app.include_router(chatbot.router, prefix="/api/chatbot", tags=["Chatbot"])
+app.include_router(contact.router, prefix="/api", tags=["Contact"])
 
 
 os.makedirs(settings.UPLOAD_DIR, exist_ok=True)

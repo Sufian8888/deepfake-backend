@@ -39,6 +39,26 @@ class UserLogin(BaseModel):
     username: str  # Can be email or username
     password: str
 
+
+class SendOTPRequest(BaseModel):
+    email: EmailStr
+
+
+class VerifyOTPRequest(BaseModel):
+    email: EmailStr
+    otp: str = Field(..., min_length=6, max_length=6, pattern=r"^\d{6}$")
+
+
+class ContactRequest(BaseModel):
+    name: str = Field(..., min_length=1, max_length=200)
+    email: EmailStr
+    subject: str = Field(..., min_length=1, max_length=200)
+    message: str = Field(..., min_length=1, max_length=5000)
+
+
+class MessageResponse(BaseModel):
+    message: str
+
 class UserResponse(UserBase):
     id: int
     role: UserRole

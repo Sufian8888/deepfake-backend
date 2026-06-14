@@ -42,6 +42,11 @@ class Settings(BaseSettings):
     STRIPE_PRICE_ENTERPRISE_YEARLY: str = ""
     GROQ_API_KEY: str = ""
 
+    # Email (Resend)
+    EMAIL_API_KEY: str = ""
+    FROM_EMAIL: str = ""
+    ADMIN_EMAIL: str = ""
+
     
     class Config:
         env_file = ".env"
