@@ -8,6 +8,17 @@ class UserRole(str, Enum):
     USER = "user"
     ADMIN = "admin"
 
+
+class BillingPlan(str, Enum):
+    FREE = "free"
+    PRO = "pro"
+    ENTERPRISE = "enterprise"
+
+
+class BillingCycle(str, Enum):
+    MONTHLY = "monthly"
+    YEARLY = "yearly"
+
 class PredictionStatus(str, Enum):
     PENDING = "pending"
     PROCESSING = "processing"
@@ -32,10 +43,43 @@ class UserResponse(UserBase):
     id: int
     role: UserRole
     is_active: bool
+    subscription_plan: BillingPlan = BillingPlan.FREE
+    subscription_status: str = "inactive"
+    subscription_cycle: BillingCycle = BillingCycle.MONTHLY
+    stripe_customer_id: Optional[str] = None
+    stripe_subscription_id: Optional[str] = None
+    stripe_price_id: Optional[str] = None
+    subscription_current_period_end: Optional[datetime] = None
+    subscription_updated_at: Optional[datetime] = None
     created_at: datetime
     
     class Config:
         from_attributes = True
+
+
+class BillingCheckoutRequest(BaseModel):
+    plan: BillingPlan
+    billing_cycle: BillingCycle = BillingCycle.MONTHLY
+
+
+class BillingConfirmRequest(BaseModel):
+    session_id: str
+
+
+class BillingCheckoutResponse(BaseModel):
+    url: str
+
+
+class BillingPortalResponse(BaseModel):
+    url: str
+
+
+class BillingInfoResponse(BaseModel):
+    subscription_plan: BillingPlan = BillingPlan.FREE
+    subscription_status: str = "inactive"
+    subscription_cycle: BillingCycle = BillingCycle.MONTHLY
+    subscription_current_period_end: Optional[datetime] = None
+    is_premium: bool = False
 
 # Token Schemas
 class Token(BaseModel):

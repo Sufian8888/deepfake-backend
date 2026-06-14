@@ -6,7 +6,7 @@ import os
 import logging
 
 from app.init_db import init_db
-from app.routes import auth, upload, predictions, dashboard, admin
+from app.routes import auth, upload, predictions, dashboard, admin, billing
 from app.config import settings
 
 logger = logging.getLogger(__name__)
@@ -34,7 +34,17 @@ app = FastAPI(
 )
 
 cors_origins = os.getenv("CORS_ORIGINS", "http://localhost:3000")
-allowed_origins = [origin.strip() for origin in cors_origins.split(",") if origin.strip()]
+allowed_origins = {origin.strip() for origin in cors_origins.split(",") if origin.strip()}
+
+frontend_url = settings.FRONTEND_URL.rstrip("/")
+if frontend_url:
+    allowed_origins.add(frontend_url)
+    if frontend_url.startswith("http://localhost:"):
+        allowed_origins.add(frontend_url.replace("http://localhost:", "http://127.0.0.1:"))
+    elif frontend_url.startswith("http://127.0.0.1:"):
+        allowed_origins.add(frontend_url.replace("http://127.0.0.1:", "http://localhost:"))
+
+allowed_origins = sorted(allowed_origins)
 
 # CORS middleware for frontend
 app.add_middleware(
@@ -51,6 +61,7 @@ app.include_router(upload.router, prefix="/api/upload", tags=["Upload"])
 app.include_router(predictions.router, prefix="/api/predictions", tags=["Predictions"])
 app.include_router(dashboard.router, prefix="/api/dashboard", tags=["Dashboard"])
 app.include_router(admin.router, prefix="/api/admin", tags=["Admin"])
+app.include_router(billing.router, prefix="/api/billing", tags=["Billing"])
 
 os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
 try:

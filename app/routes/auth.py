@@ -112,7 +112,22 @@ async def login(credentials: UserLogin, db: Session = Depends(get_db)):
 @router.get("/me", response_model=UserResponse)
 async def get_me(current_user: User = Depends(get_current_user)):
     """Get current user information"""
-    return UserResponse(email=current_user.email, username=current_user.username)
+    return UserResponse(
+        id=current_user.id,
+        email=current_user.email,
+        username=current_user.username,
+        role=current_user.role,
+        is_active=current_user.is_active,
+        subscription_plan=current_user.subscription_plan,
+        subscription_status=current_user.subscription_status,
+        subscription_cycle=current_user.subscription_cycle,
+        stripe_customer_id=current_user.stripe_customer_id,
+        stripe_subscription_id=current_user.stripe_subscription_id,
+        stripe_price_id=current_user.stripe_price_id,
+        subscription_current_period_end=current_user.subscription_current_period_end,
+        subscription_updated_at=current_user.subscription_updated_at,
+        created_at=current_user.created_at,
+    )
 
 @router.post("/logout")
 async def logout(current_user: User = Depends(get_current_user)):

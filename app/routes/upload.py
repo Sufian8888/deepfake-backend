@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 from datetime import datetime
 import os
 
@@ -12,6 +13,15 @@ from app.config import settings
 
 router = APIRouter()
 
+FREE_MONTHLY_UPLOAD_LIMIT = 5
+
+
+def is_premium_user(current_user: User) -> bool:
+    return (
+        current_user.subscription_plan in {"pro", "enterprise"}
+        and current_user.subscription_status == "active"
+    )
+
 @router.post("/video", response_model=VideoResponse, status_code=status.HTTP_201_CREATED)
 async def upload_video(
     file: UploadFile = File(...),
@@ -19,6 +29,19 @@ async def upload_video(
     db: Session = Depends(get_db)
 ):
     """Upload a video file for deepfake detection"""
+
+    if not is_premium_user(current_user):
+        month_start = datetime.utcnow().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        uploads_this_month = db.query(func.count(Video.id)).filter(
+            Video.user_id == current_user.id,
+            Video.uploaded_at >= month_start
+        ).scalar() or 0
+
+        if uploads_this_month >= FREE_MONTHLY_UPLOAD_LIMIT:
+            raise HTTPException(
+                status_code=status.HTTP_402_PAYMENT_REQUIRED,
+                detail="Free plan limit reached. Upgrade to Pro for unlimited uploads.",
+            )
     
     # Validate file type
     try:

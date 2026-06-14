@@ -29,6 +29,42 @@ def init_db():
                 """))
                 connection.commit()
                 logger.info("✅ Added cloud_url column to videos table")
+
+                # Add billing columns to users table if they don't exist
+                connection.execute(text("""
+                    ALTER TABLE users
+                    ADD COLUMN IF NOT EXISTS subscription_plan VARCHAR(50) NOT NULL DEFAULT 'free'
+                """))
+                connection.execute(text("""
+                    ALTER TABLE users
+                    ADD COLUMN IF NOT EXISTS subscription_status VARCHAR(50) NOT NULL DEFAULT 'inactive'
+                """))
+                connection.execute(text("""
+                    ALTER TABLE users
+                    ADD COLUMN IF NOT EXISTS subscription_cycle VARCHAR(50) NOT NULL DEFAULT 'monthly'
+                """))
+                connection.execute(text("""
+                    ALTER TABLE users
+                    ADD COLUMN IF NOT EXISTS stripe_customer_id VARCHAR(255) NULL
+                """))
+                connection.execute(text("""
+                    ALTER TABLE users
+                    ADD COLUMN IF NOT EXISTS stripe_subscription_id VARCHAR(255) NULL
+                """))
+                connection.execute(text("""
+                    ALTER TABLE users
+                    ADD COLUMN IF NOT EXISTS stripe_price_id VARCHAR(255) NULL
+                """))
+                connection.execute(text("""
+                    ALTER TABLE users
+                    ADD COLUMN IF NOT EXISTS subscription_current_period_end TIMESTAMP NULL
+                """))
+                connection.execute(text("""
+                    ALTER TABLE users
+                    ADD COLUMN IF NOT EXISTS subscription_updated_at TIMESTAMP NULL
+                """))
+                connection.commit()
+                logger.info("✅ Added billing columns to users table")
         except Exception as e:
             logger.info(f"ℹ️  cloud_url column already exists or error: {str(e)}")
         

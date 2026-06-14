@@ -6,6 +6,9 @@ from pathlib import Path
 class Settings(BaseSettings):
     # Database - PostgreSQL (with Neon as primary)
     DATABASE_URL: str = "postgresql://user:password@localhost:5432/deepfake_db"
+
+    # App / Frontend
+    FRONTEND_URL: str = "http://localhost:3000"
     
     # CORS / External service URLs
     CORS_ORIGINS: str = "https://deepfake-detection-ovj5.onrender.com"
@@ -29,6 +32,14 @@ class Settings(BaseSettings):
     CLOUDINARY_CLOUD_NAME: str = ""
     CLOUDINARY_API_KEY: str = ""
     CLOUDINARY_API_SECRET: str = ""
+
+    # Stripe Billing
+    STRIPE_SECRET_KEY: str = ""
+    STRIPE_WEBHOOK_SECRET: str = ""
+    STRIPE_PRICE_PRO_MONTHLY: str = ""
+    STRIPE_PRICE_PRO_YEARLY: str = ""
+    STRIPE_PRICE_ENTERPRISE_MONTHLY: str = ""
+    STRIPE_PRICE_ENTERPRISE_YEARLY: str = ""
     
     class Config:
         env_file = ".env"

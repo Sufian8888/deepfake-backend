@@ -26,6 +26,14 @@ class User(Base):
     hashed_password = Column(String(255), nullable=False)
     role = Column(String(50), default=UserRole.USER.value, nullable=False)
     is_active = Column(Boolean, default=True, nullable=False)
+    subscription_plan = Column(String(50), default="free", nullable=False)
+    subscription_status = Column(String(50), default="inactive", nullable=False)
+    subscription_cycle = Column(String(50), default="monthly", nullable=False)
+    stripe_customer_id = Column(String(255), nullable=True, index=True)
+    stripe_subscription_id = Column(String(255), nullable=True, index=True)
+    stripe_price_id = Column(String(255), nullable=True)
+    subscription_current_period_end = Column(DateTime, nullable=True)
+    subscription_updated_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     
     # Relationship
