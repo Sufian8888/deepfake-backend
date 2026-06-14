@@ -40,6 +40,8 @@ class Settings(BaseSettings):
     STRIPE_PRICE_PRO_YEARLY: str = ""
     STRIPE_PRICE_ENTERPRISE_MONTHLY: str = ""
     STRIPE_PRICE_ENTERPRISE_YEARLY: str = ""
+    GROQ_API_KEY: str = ""
+
     
     class Config:
         env_file = ".env"
