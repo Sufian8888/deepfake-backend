@@ -96,10 +96,17 @@ async def chatbot_query(
         # Calculate percentage of fake frames
         fake_percentage = (fake_frames / total_frames * 100) if total_frames > 0 else 0.0
         
-        # Calculate average confidence score
-        valid_scores = [f.confidence_score for f in frames if f.confidence_score is not None]
-        avg_confidence = (sum(valid_scores) / len(valid_scores)) if valid_scores else (video_match.confidence_score or 0.0)
         
+        # Use the exact value stored in the database
+        confidence_score = video_match.confidence_score
+
+        confidence_score = video_match.confidence_score
+
+        if confidence_score is not None:
+            confidence_str = f"{confidence_score:.1f}%"
+        else:
+            # interpret using status
+            confidence_str = f"Not available (status: {video_match.status})"
         # Collect regions
         flagged_regions = {}
         for f in frames:
@@ -115,17 +122,21 @@ async def chatbot_query(
         if flagged_regions:
             sorted_regions = sorted(flagged_regions.items(), key=lambda x: x[1], reverse=True)
             regions_str = ", ".join([f"{r} ({count} frames)" for r, count in sorted_regions])
-            
-        verdict = "Likely Deepfake" if video_match.is_deepfake else "Likely Authentic"
+                    
         if video_match.status != "completed":
-            verdict = f"Analysis not completed (Current Status: {video_match.status})"
-            
+            verdict = f"Analysis not completed (status: {video_match.status})"
+        elif video_match.is_deepfake is True:
+            verdict = "Likely Deepfake"
+        elif video_match.is_deepfake is False:
+            verdict = "Likely Authentic"
+        else:
+            verdict = f"Result not available (status: {video_match.status})"
         context = (
             f"Video: {video_match.original_filename}\n"
             f"Status: {video_match.status}\n"
             f"Total frames analyzed: {total_frames}\n"
             f"Frames flagged as fake: {fake_frames} ({fake_percentage:.1f}%)\n"
-            f"Average confidence score: {avg_confidence:.1f}%\n"
+            f"Confidence score: {confidence_str}\n"
             f"Suspicious regions noted: {regions_str}\n"
             f"Overall verdict: {verdict}"
         )
@@ -134,15 +145,30 @@ async def chatbot_query(
     system_prompt = (
         "You are an AI assistant that explains deepfake video analysis results to users in plain language. "
         "You will be given structured data about a specific video's analysis (frame counts, confidence scores, "
-        "flagged regions, verdict). Use ONLY this data to answer the user's question.\n\n"
+        "flagged regions, verdict, and processing status). Use ONLY this data to answer the user's question.\n\n"
+
         "- Explain confidence scores in simple terms (e.g., \"91% confidence means the model is very "
         "certain this video has been manipulated\").\n"
+        
+        "- If confidence score or verdict is missing or NULL, DO NOT guess or assume values. "
+        "Instead, explain the situation using the video's status.\n"
+        
+        "- Interpret status carefully:\n"
+        "  * pending → analysis has not started yet\n"
+        "  * processing → analysis is currently running\n"
+        "  * failed → analysis did not complete successfully\n"
+        "  * completed → analysis finished and results are available\n\n"
+
         "- If asked \"why\" a video was flagged, reference the suspicious regions and frame statistics.\n"
+        
         "- Be concise (3-5 sentences) and avoid technical jargon unless the user asks for detail.\n"
-        "- If no video data is provided, politely ask the user for the exact filename (including "
-        "extension) of the video they want to discuss.\n"
+        
+        "- If no video data is provided, politely ask the user for the exact filename (including extension) "
+        "of the video they want to discuss.\n"
+        
         "- Never make up data that wasn't provided to you."
     )
+    
     
     # Build messages
     messages = []
