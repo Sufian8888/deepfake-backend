@@ -15,6 +15,25 @@ from app.config import settings
 
 router = APIRouter()
 
+
+def build_user_response(user: User) -> UserResponse:
+    return UserResponse(
+        id=user.id,
+        email=user.email,
+        username=user.username,
+        role=user.role,
+        is_active=user.is_active,
+        subscription_plan=user.subscription_plan,
+        subscription_status=user.subscription_status,
+        subscription_cycle=user.subscription_cycle,
+        stripe_customer_id=user.stripe_customer_id,
+        stripe_subscription_id=user.stripe_subscription_id,
+        stripe_price_id=user.stripe_price_id,
+        subscription_current_period_end=user.subscription_current_period_end,
+        subscription_updated_at=user.subscription_updated_at,
+        created_at=user.created_at,
+    )
+
 @router.post("/signup", response_model=Token, status_code=status.HTTP_201_CREATED)
 async def signup(user_data: UserCreate, db: Session = Depends(get_db)):
     """Register a new user"""
@@ -59,14 +78,7 @@ async def signup(user_data: UserCreate, db: Session = Depends(get_db)):
     return {
         "access_token": access_token,
         "token_type": "bearer",
-        "user": UserResponse(
-            id=new_user.id,
-            email=new_user.email,
-            username=new_user.username,
-            role=new_user.role,
-            is_active=new_user.is_active,
-            created_at=new_user.created_at
-        )
+        "user": build_user_response(new_user)
     }
 
 @router.post("/login", response_model=Token)
@@ -99,14 +111,7 @@ async def login(credentials: UserLogin, db: Session = Depends(get_db)):
     return {
         "access_token": access_token,
         "token_type": "bearer",
-        "user": UserResponse(
-            id=user.id,
-            email=user.email,
-            username=user.username,
-            role=user.role,
-            is_active=user.is_active,
-            created_at=user.created_at
-        )
+        "user": build_user_response(user)
     }
 
 @router.get("/me", response_model=UserResponse)

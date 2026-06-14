@@ -4,6 +4,8 @@ from fastapi.staticfiles import StaticFiles
 from contextlib import asynccontextmanager
 import os
 import logging
+import time
+from starlette.requests import Request
 
 from app.init_db import init_db
 from app.routes import auth, upload, predictions, dashboard, admin, billing
@@ -34,6 +36,15 @@ app = FastAPI(
     version="1.0.0",
     lifespan=lifespan
 )
+
+
+@app.middleware("http")
+async def log_request_duration(request: Request, call_next):
+    started_at = time.perf_counter()
+    response = await call_next(request)
+    elapsed_ms = (time.perf_counter() - started_at) * 1000
+    logger.info("%s %s -> %s in %.1fms", request.method, request.url.path, response.status_code, elapsed_ms)
+    return response
 
 cors_origins = os.getenv("CORS_ORIGINS", "http://localhost:3000")
 allowed_origins = {origin.strip() for origin in cors_origins.split(",") if origin.strip()}
