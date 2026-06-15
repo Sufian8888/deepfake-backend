@@ -45,7 +45,7 @@ async def log_request_duration(request: Request, call_next):
     logger.info("%s %s -> %s in %.1fms", request.method, request.url.path, response.status_code, elapsed_ms)
     return response
 
-cors_origins = os.getenv("CORS_ORIGINS", "http://localhost:3000")
+cors_origins = settings.CORS_ORIGINS
 allowed_origins = {origin.strip() for origin in cors_origins.split(",") if origin.strip()}
 
 frontend_url = settings.FRONTEND_URL.rstrip("/")
