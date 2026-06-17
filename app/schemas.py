@@ -40,6 +40,15 @@ class UserLogin(BaseModel):
     password: str
 
 
+class UserProfileUpdate(BaseModel):
+    full_name: str = Field(..., min_length=1, max_length=100)
+
+
+class UserPasswordUpdate(BaseModel):
+    current_password: str = Field(..., min_length=6)
+    new_password: str = Field(..., min_length=6)
+
+
 class SendOTPRequest(BaseModel):
     email: EmailStr
 
