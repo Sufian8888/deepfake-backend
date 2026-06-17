@@ -1,4 +1,4 @@
-from pydantic import BaseModel, EmailStr, Field, ConfigDict, field_serializer, model_validator
+from pydantic import BaseModel, EmailStr, Field, ConfigDict, field_serializer, model_validator, computed_field
 from typing import Optional, List
 from datetime import datetime
 from enum import Enum
@@ -68,22 +68,32 @@ class ContactRequest(BaseModel):
 class MessageResponse(BaseModel):
     message: str
 
-class UserResponse(UserBase):
+class UserProfileResponse(UserBase):
+    """Public user profile — no internal billing identifiers."""
     id: int
     role: UserRole
     is_active: bool
     subscription_plan: BillingPlan = BillingPlan.FREE
     subscription_status: str = "inactive"
     subscription_cycle: BillingCycle = BillingCycle.MONTHLY
+    subscription_current_period_end: Optional[datetime] = None
+    created_at: datetime
+
+    @computed_field
+    @property
+    def full_name(self) -> str:
+        return self.username
+
+    class Config:
+        from_attributes = True
+
+
+class UserResponse(UserProfileResponse):
+    """Admin/internal user details — includes Stripe identifiers."""
     stripe_customer_id: Optional[str] = None
     stripe_subscription_id: Optional[str] = None
     stripe_price_id: Optional[str] = None
-    subscription_current_period_end: Optional[datetime] = None
     subscription_updated_at: Optional[datetime] = None
-    created_at: datetime
-    
-    class Config:
-        from_attributes = True
 
 
 class BillingCheckoutRequest(BaseModel):
@@ -114,7 +124,7 @@ class BillingInfoResponse(BaseModel):
 class Token(BaseModel):
     access_token: str
     token_type: str
-    user: UserResponse
+    user: UserProfileResponse
 
 class TokenData(BaseModel):
     email: Optional[str] = None
@@ -199,6 +209,47 @@ class AdminUserUpdate(BaseModel):
 class AdminStats(BaseModel):
     total_users: int
     total_videos: int
-    total_deepfakes: int
-    active_users: int
-    recent_users: List[UserResponse]
+    total_predictions: int
+    deepfake_detected: int
+    genuine_detected: int
+    pending_analyses: int
+    storage_used_mb: float = 0.0
+    active_users_24h: int = 0
+
+class AdminActivityItem(BaseModel):
+    id: int
+    type: str
+    filename: str
+    user_name: str
+    timestamp: datetime
+    status: Optional[str] = None
+    is_deepfake: Optional[bool] = None
+
+class AdminUserListItem(BaseModel):
+    id: int
+    email: EmailStr
+    username: str
+    role: UserRole
+    is_active: bool
+    subscription_plan: BillingPlan = BillingPlan.FREE
+    subscription_status: str = "inactive"
+    subscription_cycle: BillingCycle = BillingCycle.MONTHLY
+    created_at: datetime
+
+    @computed_field
+    @property
+    def full_name(self) -> str:
+        return self.username
+
+class AdminVideoListItem(BaseModel):
+    id: int
+    filename: str
+    original_filename: str
+    file_size: int
+    file_type: str
+    status: PredictionStatus
+    is_deepfake: Optional[bool] = None
+    confidence_score: Optional[float] = None
+    uploaded_at: datetime
+    user_email: Optional[str] = None
+    user_name: Optional[str] = None

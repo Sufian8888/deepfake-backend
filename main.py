@@ -14,11 +14,20 @@ from app.config import settings
 
 logger = logging.getLogger(__name__)
 
+is_production = not (
+    "localhost" in settings.FRONTEND_URL or "127.0.0.1" in settings.FRONTEND_URL
+)
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
     print("🚀 Starting DeepFake Detection API...")
-    print(f"📝 API Documentation: http://localhost:8000/docs")
+    if is_production:
+        print("🔒 Production mode — API docs disabled")
+        if settings.SECRET_KEY == "your-super-secret-key-change-this-in-production":
+            logger.error("SECRET_KEY is still the default value in production!")
+    else:
+        print(f"📝 API Documentation: http://localhost:8000/docs")
     try:
         init_db()
         print("✅ Database initialized successfully")
@@ -33,8 +42,23 @@ app = FastAPI(
     title="DeepFake Detection API",
     description="Backend API for video and audio deepfake detection",
     version="1.0.0",
-    lifespan=lifespan
+    lifespan=lifespan,
+    docs_url=None if is_production else "/docs",
+    redoc_url=None if is_production else "/redoc",
+    openapi_url=None if is_production else "/openapi.json",
 )
+
+
+@app.middleware("http")
+async def add_security_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+    if is_production:
+        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+    return response
 
 
 @app.middleware("http")
@@ -58,14 +82,31 @@ if frontend_url:
 
 allowed_origins = sorted(allowed_origins)
 
-# CORS middleware for frontend
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=allowed_origins,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+# Allow LAN/private IPs during local dev (e.g. http://192.168.x.x:3000 from `next dev`)
+is_local_dev = not is_production
+local_dev_origin_regex = (
+    r"https?://("
+    r"localhost|"
+    r"127\.0\.0\.1|"
+    r"192\.168\.\d{1,3}\.\d{1,3}|"
+    r"10\.\d{1,3}\.\d{1,3}\.\d{1,3}|"
+    r"172\.(1[6-9]|2\d|3[0-1])\.\d{1,3}\.\d{1,3}"
+    r")(:\d+)?"
 )
+
+cors_kwargs = {
+    "allow_origins": allowed_origins,
+    "allow_credentials": True,
+    "allow_methods": ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    "allow_headers": ["Authorization", "Content-Type"],
+}
+if is_local_dev:
+    cors_kwargs["allow_origin_regex"] = local_dev_origin_regex
+    cors_kwargs["allow_methods"] = ["*"]
+    cors_kwargs["allow_headers"] = ["*"]
+
+# CORS middleware for frontend
+app.add_middleware(CORSMiddleware, **cors_kwargs)
 
 # Include routers
 app.include_router(auth.router, prefix="/api/auth", tags=["Authentication"])

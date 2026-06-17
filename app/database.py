@@ -9,7 +9,9 @@ logger = logging.getLogger(__name__)
 engine = create_engine(
     settings.DATABASE_URL,
     echo=False,
-    pool_pre_ping=True,  # Test connections before using
+    pool_pre_ping=True,
+    pool_size=5,
+    max_overflow=10,
     connect_args={"connect_timeout": 10}
 )
 

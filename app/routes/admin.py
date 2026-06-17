@@ -1,10 +1,18 @@
-from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import func
-from sqlalchemy.orm import Session
+from datetime import datetime, timedelta
+
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy import func, case, and_
+from sqlalchemy.orm import Session, joinedload, load_only
 
 from app.database import get_db
-from app.models import User, Video, UserRole
-from app.schemas import AdminStats, UserResponse, AdminUserUpdate, VideoResponse
+from app.models import User, Video, UserRole, PredictionStatus
+from app.schemas import (
+    AdminStats,
+    AdminActivityItem,
+    AdminVideoListItem,
+    AdminUserListItem,
+    AdminUserUpdate,
+)
 from app.auth import get_current_admin
 
 router = APIRouter()
@@ -15,48 +23,107 @@ async def get_admin_stats(
     db: Session = Depends(get_db)
 ):
     """Get admin dashboard statistics"""
-    
-    # Total users
-    total_users = db.query(func.count(User.id)).scalar()
-    
-    # Total videos
-    total_videos = db.query(func.count(Video.id)).scalar()
-    
-    # Total deepfakes detected
-    total_deepfakes = db.query(func.count(Video.id)).filter(
-        Video.is_deepfake == True
-    ).scalar()
-    
-    # Active users
-    active_users = db.query(func.count(User.id)).filter(
-        User.is_active == True
-    ).scalar()
-    
-    # Recent users (last 5)
-    recent_users = db.query(User).order_by(
-        User.created_at.desc()
-    ).limit(5).all()
-    
+    completed = PredictionStatus.COMPLETED.value
+    pending_statuses = [
+        PredictionStatus.PENDING.value,
+        PredictionStatus.PROCESSING.value,
+    ]
+    cutoff = datetime.utcnow() - timedelta(hours=24)
+
+    video_stats = db.query(
+        func.count(Video.id).label("total_videos"),
+        func.count(case((Video.status == completed, 1))).label("total_predictions"),
+        func.count(case((Video.is_deepfake == True, 1))).label("deepfake_detected"),
+        func.count(
+            case((and_(Video.status == completed, Video.is_deepfake == False), 1))
+        ).label("genuine_detected"),
+        func.count(case((Video.status.in_(pending_statuses), 1))).label("pending_analyses"),
+        func.coalesce(func.sum(Video.file_size), 0).label("storage_bytes"),
+    ).one()
+
+    total_users = db.query(func.count(User.id)).scalar() or 0
+    active_users_24h = db.query(func.count(func.distinct(Video.user_id))).filter(
+        Video.uploaded_at >= cutoff
+    ).scalar() or 0
+
+    storage_used_mb = round((video_stats.storage_bytes or 0) / (1024 * 1024), 2)
+
     return {
         "total_users": total_users,
-        "total_videos": total_videos,
-        "total_deepfakes": total_deepfakes,
-        "active_users": active_users,
-        "recent_users": recent_users
+        "total_videos": video_stats.total_videos or 0,
+        "total_predictions": video_stats.total_predictions or 0,
+        "deepfake_detected": video_stats.deepfake_detected or 0,
+        "genuine_detected": video_stats.genuine_detected or 0,
+        "pending_analyses": video_stats.pending_analyses or 0,
+        "storage_used_mb": storage_used_mb,
+        "active_users_24h": active_users_24h,
     }
 
-@router.get("/users", response_model=list[UserResponse])
+
+@router.get("/recent-activity", response_model=list[AdminActivityItem])
+async def get_admin_recent_activity(
+    current_admin: User = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+    limit: int = Query(20, ge=1, le=50),
+):
+    """Get recent activity across all users (admin only)"""
+    videos = (
+        db.query(Video)
+        .options(
+            load_only(
+                Video.id,
+                Video.original_filename,
+                Video.status,
+                Video.uploaded_at,
+                Video.processed_at,
+                Video.is_deepfake,
+            ),
+            joinedload(Video.user).load_only(User.username),
+        )
+        .order_by(Video.uploaded_at.desc())
+        .limit(limit)
+        .all()
+    )
+
+    activities = []
+    for video in videos:
+        if video.status == PredictionStatus.COMPLETED.value:
+            activity_type = "result"
+            timestamp = video.processed_at or video.uploaded_at
+        elif video.status in (
+            PredictionStatus.PENDING.value,
+            PredictionStatus.PROCESSING.value,
+        ):
+            activity_type = "analysis"
+            timestamp = video.uploaded_at
+        else:
+            activity_type = "upload"
+            timestamp = video.uploaded_at
+
+        activities.append({
+            "id": video.id,
+            "type": activity_type,
+            "filename": video.original_filename,
+            "user_name": video.user.username if video.user else "Unknown",
+            "timestamp": timestamp,
+            "status": video.status,
+            "is_deepfake": video.is_deepfake,
+        })
+
+    return activities
+
+@router.get("/users", response_model=list[AdminUserListItem])
 async def get_all_users(
     current_admin: User = Depends(get_current_admin),
     db: Session = Depends(get_db),
-    skip: int = 0,
-    limit: int = 50
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=100)
 ):
     """Get all users (admin only)"""
-    users = db.query(User).offset(skip).limit(limit).all()
+    users = db.query(User).order_by(User.created_at.desc()).offset(skip).limit(limit).all()
     return users
 
-@router.get("/users/{user_id}", response_model=UserResponse)
+@router.get("/users/{user_id}", response_model=AdminUserListItem)
 async def get_user_details(
     user_id: int,
     current_admin: User = Depends(get_current_admin),
@@ -73,7 +140,7 @@ async def get_user_details(
     
     return user
 
-@router.patch("/users/{user_id}", response_model=UserResponse)
+@router.patch("/users/{user_id}", response_model=AdminUserListItem)
 async def update_user(
     user_id: int,
     user_update: AdminUserUpdate,
@@ -128,16 +195,49 @@ async def delete_user(
     
     return {"message": "User deleted successfully"}
 
-@router.get("/videos", response_model=list[VideoResponse])
+@router.get("/videos", response_model=list[AdminVideoListItem])
 async def get_all_videos(
     current_admin: User = Depends(get_current_admin),
     db: Session = Depends(get_db),
-    skip: int = 0,
-    limit: int = 50
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=100)
 ):
     """Get all videos from all users (admin only)"""
-    videos = db.query(Video).order_by(
-        Video.uploaded_at.desc()
-    ).offset(skip).limit(limit).all()
-    
-    return videos
+    videos = (
+        db.query(Video)
+        .options(
+            load_only(
+                Video.id,
+                Video.filename,
+                Video.original_filename,
+                Video.file_size,
+                Video.file_type,
+                Video.status,
+                Video.is_deepfake,
+                Video.confidence_score,
+                Video.uploaded_at,
+            ),
+            joinedload(Video.user).load_only(User.email, User.username),
+        )
+        .order_by(Video.uploaded_at.desc())
+        .offset(skip)
+        .limit(limit)
+        .all()
+    )
+
+    return [
+        {
+            "id": video.id,
+            "filename": video.filename,
+            "original_filename": video.original_filename,
+            "file_size": video.file_size,
+            "file_type": video.file_type,
+            "status": video.status,
+            "is_deepfake": video.is_deepfake,
+            "confidence_score": video.confidence_score,
+            "uploaded_at": video.uploaded_at,
+            "user_email": video.user.email if video.user else None,
+            "user_name": video.user.username if video.user else None,
+        }
+        for video in videos
+    ]

@@ -10,7 +10,7 @@ from app.models import User, UserRole
 from app.schemas import (
     UserCreate,
     UserLogin,
-    UserResponse,
+    UserProfileResponse,
     Token,
     SendOTPRequest,
     VerifyOTPRequest,
@@ -31,8 +31,8 @@ from app.config import settings
 router = APIRouter()
 
 
-def build_user_response(user: User) -> UserResponse:
-    return UserResponse(
+def build_user_response(user: User) -> UserProfileResponse:
+    return UserProfileResponse(
         id=user.id,
         email=user.email,
         username=user.username,
@@ -41,11 +41,7 @@ def build_user_response(user: User) -> UserResponse:
         subscription_plan=user.subscription_plan,
         subscription_status=user.subscription_status,
         subscription_cycle=user.subscription_cycle,
-        stripe_customer_id=user.stripe_customer_id,
-        stripe_subscription_id=user.stripe_subscription_id,
-        stripe_price_id=user.stripe_price_id,
         subscription_current_period_end=user.subscription_current_period_end,
-        subscription_updated_at=user.subscription_updated_at,
         created_at=user.created_at,
     )
 
@@ -127,13 +123,13 @@ async def login(credentials: UserLogin, db: Session = Depends(get_db)):
         "user": build_user_response(user)
     }
 
-@router.get("/me", response_model=UserResponse)
+@router.get("/me", response_model=UserProfileResponse)
 async def get_me(current_user: User = Depends(get_current_user)):
     """Get current user information"""
     return build_user_response(current_user)
 
 
-@router.patch("/profile", response_model=UserResponse)
+@router.patch("/profile", response_model=UserProfileResponse)
 async def update_profile(
     payload: UserProfileUpdate,
     current_user: User = Depends(get_current_user),
