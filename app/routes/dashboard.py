@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends
-from sqlalchemy import func
+from sqlalchemy import func, case
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -15,41 +15,26 @@ async def get_dashboard_stats(
     db: Session = Depends(get_db)
 ):
     """Get user dashboard statistics"""
-    
-    # Total videos uploaded by user
-    total_videos = db.query(func.count(Video.id)).filter(
-        Video.user_id == current_user.id
-    ).scalar() or 0
-    
-    # Videos analyzed (completed)
-    total_predictions = db.query(func.count(Video.id)).filter(
-        Video.user_id == current_user.id,
-        Video.status == PredictionStatus.COMPLETED.value
-    ).scalar() or 0
-    
-    # Deepfakes detected
-    deepfakes_found = db.query(func.count(Video.id)).filter(
-        Video.user_id == current_user.id,
-        Video.is_deepfake == True
-    ).scalar() or 0
-    
-    # Genuine videos (total analyzed - deepfakes)
+
+    counts = db.query(
+        func.count(Video.id).label("total_videos"),
+        func.sum(case((Video.status == PredictionStatus.COMPLETED.value, 1), else_=0)).label("total_predictions"),
+        func.sum(case((Video.is_deepfake == True, 1), else_=0)).label("deepfakes_found"),
+        func.sum(
+            case(
+                (Video.status.in_([PredictionStatus.PENDING.value, PredictionStatus.PROCESSING.value]), 1),
+                else_=0,
+            )
+        ).label("pending_analyses"),
+    ).filter(Video.user_id == current_user.id).one()
+
+    total_videos = int(counts.total_videos or 0)
+    total_predictions = int(counts.total_predictions or 0)
+    deepfakes_found = int(counts.deepfakes_found or 0)
+    pending_analyses = int(counts.pending_analyses or 0)
     genuine_videos = total_predictions - deepfakes_found
-    
-    # Pending analyses (not yet completed)
-    pending_analyses = db.query(func.count(Video.id)).filter(
-        Video.user_id == current_user.id,
-        Video.status.in_([PredictionStatus.PENDING.value, PredictionStatus.PROCESSING.value])
-    ).scalar() or 0
-    
-    # Recent uploads (last 5)
-    recent_uploads = db.query(Video).filter(
-        Video.user_id == current_user.id
-    ).order_by(Video.uploaded_at.desc()).limit(5).all()
-    
-    # Calculate success rate
     success_rate = (total_predictions / total_videos * 100) if total_videos > 0 else 0.0
-    
+
     return {
         "total_videos": total_videos,
         "total_predictions": total_predictions,

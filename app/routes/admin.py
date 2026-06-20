@@ -14,6 +14,7 @@ from app.schemas import (
     AdminUserUpdate,
 )
 from app.auth import get_current_admin
+from app.services.audit_log import record_audit_log
 
 router = APIRouter()
 
@@ -190,7 +191,16 @@ async def delete_user(
             detail="Cannot delete your own account"
         )
     
+    deleted_email = user.email
     db.delete(user)
+
+    record_audit_log(
+        user_id=current_admin.id,
+        action="admin.delete_user",
+        entity_type="user",
+        entity_id=user_id,
+        details={"deleted_email": deleted_email},
+    )
     db.commit()
     
     return {"message": "User deleted successfully"}

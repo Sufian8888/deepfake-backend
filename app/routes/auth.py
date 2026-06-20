@@ -7,6 +7,7 @@ from datetime import timedelta
 
 from app.database import get_db
 from app.models import User, UserRole
+from app.services.audit_log import record_audit_log
 from app.schemas import (
     UserCreate,
     UserLogin,
@@ -77,6 +78,14 @@ async def signup(user_data: UserCreate, db: Session = Depends(get_db)):
     db.add(new_user)
     db.commit()
     db.refresh(new_user)
+
+    record_audit_log(
+        user_id=new_user.id,
+        action="user.signup",
+        entity_type="user",
+        entity_id=new_user.id,
+        details={"email": new_user.email},
+    )
     
     # Create access token
     access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
@@ -115,6 +124,14 @@ async def login(credentials: UserLogin, db: Session = Depends(get_db)):
     access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = create_access_token(
         data={"sub": user.email}, expires_delta=access_token_expires
+    )
+
+    record_audit_log(
+        user_id=user.id,
+        action="user.login",
+        entity_type="user",
+        entity_id=user.id,
+        details={"email": user.email},
     )
     
     return {

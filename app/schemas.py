@@ -150,11 +150,11 @@ class FrameAnalysisDetail(BaseModel):
 class FrameAnalysisSummary(BaseModel):
     """Summary of frame-level analysis"""
     model_config = ConfigDict(from_attributes=True)
-    
+
     total_frames: int
-    fake_frames: int  # Count of frames detected as fake
-    real_frames: int  # Count of frames detected as real
-    suspicious_frames: int  # Count of suspicious frames
+    fake_frames: int
+    real_frames: int
+    suspicious_frames: int
     frame_details: List[FrameAnalysisDetail] = []
 
 class VideoResponse(BaseModel):
@@ -181,6 +181,12 @@ class VideoResponse(BaseModel):
             # This is during validation, skip
             return self
         return self
+
+class PaginatedVideoListResponse(BaseModel):
+    items: List[VideoResponse]
+    total: int
+    skip: int
+    limit: int
 
 # Prediction Schemas
 class PredictionResult(BaseModel):

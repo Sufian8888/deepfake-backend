@@ -87,3 +87,19 @@ def upload_to_cloudinary(file_content: bytes, filename: str) -> str | None:
         # Log error but don't fail upload
         print(f"Cloudinary upload failed: {str(e)}")
         return None
+
+
+FRAME_IMAGE_KEYS = frozenset({"thumbnail_base64", "image_base64"})
+
+
+def strip_frame_images(value):
+    """Remove heavy base64 image fields from nested analysis payloads."""
+    if isinstance(value, dict):
+        return {
+            key: strip_frame_images(nested)
+            for key, nested in value.items()
+            if key not in FRAME_IMAGE_KEYS
+        }
+    if isinstance(value, list):
+        return [strip_frame_images(item) for item in value]
+    return value

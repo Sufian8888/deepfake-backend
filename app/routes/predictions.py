@@ -1,17 +1,23 @@
-from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks, Query
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 from datetime import datetime
+import base64
 import json
 import requests
 import os
 from pathlib import Path
 import logging
+import time
 
 from app.database import get_db
 from app.models import User, Video, Frame, PredictionStatus
+from app.services.audit_log import record_audit_log
+from app.services.report_service import upsert_report_for_video
 from app.schemas import PredictionResult, VideoResponse
 from app.auth import get_current_user
 from app.config import settings
+from app.utils import strip_frame_images
 
 # Setup logging
 logger = logging.getLogger(__name__)
@@ -20,6 +26,8 @@ router = APIRouter()
 
 # Model API URL
 MODEL_API_URL = settings.MODEL_API_URL
+_MODELS_CACHE: dict = {"data": None, "expires_at": 0.0}
+_MODELS_CACHE_TTL_SECONDS = 300
 
 
 def get_model_api_url(model_key: str | None) -> str:
@@ -39,8 +47,52 @@ def get_model_api_url(model_key: str | None) -> str:
             continue
         key, value = entry.split("=", 1)
         model_map[key.strip()] = value.strip()
-    
+
     return model_map.get(model_key, MODEL_API_URL)
+
+
+def enrich_frame_analysis_with_images(
+    frame_analysis: dict | None,
+    analysis_details: dict,
+    model_key: str,
+) -> dict | None:
+    """Fetch annotated frame JPEGs from the model API and persist as base64 thumbnails."""
+    if not frame_analysis:
+        return frame_analysis
+
+    annotated_frames = analysis_details.get("annotated_frames") or []
+    frame_details = frame_analysis.get("frame_details") or []
+    if not annotated_frames or not frame_details:
+        return frame_analysis
+
+    model_base = get_model_api_url(model_key).rstrip("/")
+
+    for index, frame_path in enumerate(annotated_frames):
+        if index >= len(frame_details):
+            break
+
+        if frame_details[index].get("thumbnail_base64") or frame_details[index].get("image_base64"):
+            continue
+
+        frame_url = (
+            frame_path
+            if str(frame_path).startswith("http")
+            else f"{model_base}{frame_path}"
+        )
+
+        try:
+            response = requests.get(frame_url, timeout=20)
+            if response.status_code == 200 and response.content:
+                frame_details[index]["thumbnail_base64"] = base64.b64encode(
+                    response.content
+                ).decode("utf-8")
+                logger.info("📸 Cached thumbnail for frame %s", index + 1)
+        except Exception as exc:
+            logger.warning("Could not fetch frame image %s: %s", frame_path, exc)
+
+    frame_analysis["frame_details"] = frame_details
+    return frame_analysis
+
 
 def save_frame_analysis(db: Session, video_id: int, frame_analysis: dict):
     """
@@ -71,9 +123,14 @@ def save_frame_analysis(db: Session, video_id: int, frame_analysis: dict):
         
         # Save each frame
         for frame_data in frame_details:
+            frame_number = frame_data.get("frame_number")
+            if frame_number is None:
+                frame_num = frame_data.get("frame_num")
+                frame_number = (frame_num - 1) if isinstance(frame_num, int) and frame_num > 0 else 0
+
             frame = Frame(
                 video_id=video_id,
-                frame_number=frame_data.get("frame_number", 0),
+                frame_number=frame_number,
                 timestamp=frame_data.get("timestamp"),
                 is_fake=frame_data.get("is_fake"),
                 is_suspicious=frame_data.get("is_suspicious"),
@@ -102,6 +159,7 @@ def deepfake_analysis(video_id: int, model_key: str = "default"):
     
     db = SessionLocal()
     temp_video_path = None
+    video = None
     
     try:
         # Fetch video from database
@@ -228,6 +286,11 @@ def deepfake_analysis(video_id: int, model_key: str = "default"):
                 # Save frame-level analysis if provided
                 frame_analysis = result.get("frame_analysis")
                 if frame_analysis:
+                    frame_analysis = enrich_frame_analysis_with_images(
+                        frame_analysis,
+                        analysis_details,
+                        model_key,
+                    )
                     save_frame_analysis(db, video_id, frame_analysis)
                     logger.info(f"✅ Frame analysis saved")
                 
@@ -236,7 +299,7 @@ def deepfake_analysis(video_id: int, model_key: str = "default"):
                 video.status = PredictionStatus.COMPLETED.value
                 video.is_deepfake = result.get("is_deepfake", False)
                 video.confidence_score = result.get("confidence_score", 0.0)
-                video.prediction_details = json.dumps(analysis_details)
+                video.prediction_details = json.dumps(strip_frame_images(analysis_details))
                 video.processed_at = datetime.utcnow()
                 logger.info(f"✅ Results saved: deepfake={video.is_deepfake}, confidence={video.confidence_score}")
             except ValueError as e:
@@ -299,7 +362,32 @@ def deepfake_analysis(video_id: int, model_key: str = "default"):
                 logger.error(f"❌ Error deleting temp file: {e}")
         
         logger.info(f"💾 Committing database changes...")
-        db.commit()
+        if video is not None:
+            try:
+                db.commit()
+            except Exception as exc:
+                logger.error("Failed to commit video analysis: %s", exc)
+                db.rollback()
+
+            if video.status == PredictionStatus.COMPLETED.value:
+                upsert_report_for_video(video)
+                record_audit_log(
+                    user_id=video.user_id,
+                    action="analysis.completed",
+                    entity_type="video",
+                    entity_id=video_id,
+                    details={
+                        "is_deepfake": video.is_deepfake,
+                        "confidence_score": video.confidence_score,
+                    },
+                )
+            elif video.status == PredictionStatus.FAILED.value:
+                record_audit_log(
+                    user_id=video.user_id,
+                    action="analysis.failed",
+                    entity_type="video",
+                    entity_id=video_id,
+                )
         db.close()
         logger.info(f"✅ Background task completed for video {video_id}")
 
@@ -331,6 +419,14 @@ async def start_analysis(
     
     # Start analysis in background
     background_tasks.add_task(deepfake_analysis, video_id, model_key)
+
+    record_audit_log(
+        user_id=current_user.id,
+        action="analysis.started",
+        entity_type="video",
+        entity_id=video_id,
+        details={"model_key": model_key},
+    )
     
     return {
         "message": "Analysis started",
@@ -342,6 +438,7 @@ async def start_analysis(
 @router.get("/{video_id}/result", response_model=PredictionResult)
 async def get_prediction_result(
     video_id: int,
+    include_thumbnails: bool = Query(False),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -363,8 +460,9 @@ async def get_prediction_result(
             detail=f"Analysis not completed yet. Current status: {video.status}"
         )
     
-    # Parse prediction details
+    # Parse prediction details and strip duplicate embedded frame images
     analysis_details = json.loads(video.prediction_details) if video.prediction_details else {}
+    analysis_details = strip_frame_images(analysis_details)
     
     # Build frame analysis summary from database
     frame_analysis = None
@@ -384,9 +482,9 @@ async def get_prediction_result(
                 "is_fake": f.is_fake,
                 "is_suspicious": f.is_suspicious,
                 "confidence_score": f.confidence_score,
-                "image_base64": f.image_base64,
-                "thumbnail_base64": f.thumbnail_base64,
-                "analysis_details": f.analysis_details
+                "image_base64": f.image_base64 if include_thumbnails else None,
+                "thumbnail_base64": f.thumbnail_base64 if include_thumbnails else None,
+                "analysis_details": strip_frame_images(f.analysis_details),
             }
             for f in frames
         ]
@@ -425,31 +523,93 @@ async def get_prediction_result(
         "suggestions": suggestions
     }
 
+
+@router.get("/{video_id}/frames/thumbnails")
+async def get_frame_thumbnails(
+    video_id: int,
+    offset: int = Query(0, ge=0),
+    limit: int = Query(12, ge=1, le=50),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Return paginated frame thumbnails without loading the full analysis payload."""
+    video = db.query(Video).filter(
+        Video.id == video_id,
+        Video.user_id == current_user.id,
+    ).first()
+
+    if not video:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Video not found",
+        )
+
+    if video.status != PredictionStatus.COMPLETED.value:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Analysis not completed yet. Current status: {video.status}",
+        )
+
+    total = db.query(func.count(Frame.id)).filter(Frame.video_id == video_id).scalar() or 0
+    frames = (
+        db.query(Frame)
+        .filter(Frame.video_id == video_id)
+        .order_by(Frame.frame_number)
+        .offset(offset)
+        .limit(limit)
+        .all()
+    )
+
+    return {
+        "total": total,
+        "offset": offset,
+        "limit": limit,
+        "items": [
+            {
+                "frame_number": frame.frame_number,
+                "thumbnail_base64": frame.thumbnail_base64,
+            }
+            for frame in frames
+        ],
+    }
+
+
 @router.get("/models")
 async def list_available_models(
     current_user: User = Depends(get_current_user),
 ):
     """List available model keys and labels from model service."""
+    now = time.time()
+    if _MODELS_CACHE["data"] and now < _MODELS_CACHE["expires_at"]:
+        return _MODELS_CACHE["data"]
+
+    fallback = {
+        "models": [
+            {"key": "final_model", "label": "final_model.pth"},
+            {"key": "archive_model_best", "label": "archive_model_best.pth"},
+            {"key": "best_model", "label": "best_model.pth"},
+            {"key": "best_model-1", "label": "best_model-1.pth"},
+            {"key": "e1-train-1", "label": "e1-train-1.pth"},
+            {"key": "e2-train-1", "label": "e2-train-1.pth"},
+            {"key": "e5-train-1", "label": "e5-train-1.pth"},
+            {"key": "deepfake_master_model", "label": "deepfake_master_model.pth"},
+            {"key": "deepfake_master_model(1)", "label": "deepfake_master_model(1).pth"},
+            {"key": "folders_model_best", "label": "folders_model_best.pth"},
+        ]
+    }
+
     model_api_url = get_model_api_url("final_model")
     try:
-        response = requests.get(f"{model_api_url}/models", timeout=30)
+        response = requests.get(f"{model_api_url}/models", timeout=5)
         response.raise_for_status()
-        return response.json()
+        payload = response.json()
+        _MODELS_CACHE["data"] = payload
+        _MODELS_CACHE["expires_at"] = now + _MODELS_CACHE_TTL_SECONDS
+        return payload
     except requests.exceptions.RequestException:
-        return {
-            "models": [
-                {"key": "final_model", "label": "final_model.pth"},
-                {"key": "archive_model_best", "label": "archive_model_best.pth"},
-                {"key": "best_model", "label": "best_model.pth"},
-                {"key": "best_model-1", "label": "best_model-1.pth"},
-                {"key": "e1-train-1", "label": "e1-train-1.pth"},
-                {"key": "e2-train-1", "label": "e2-train-1.pth"},
-                {"key": "e5-train-1", "label": "e5-train-1.pth"},
-                {"key": "deepfake_master_model", "label": "deepfake_master_model.pth"},
-                {"key": "deepfake_master_model(1)", "label": "deepfake_master_model(1).pth"},
-                {"key": "folders_model_best", "label": "folders_model_best.pth"},
-            ]
-        }
+        _MODELS_CACHE["data"] = fallback
+        _MODELS_CACHE["expires_at"] = now + 60
+        return fallback
 
 
 @router.get("/{video_id}/status")

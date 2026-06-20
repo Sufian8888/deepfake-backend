@@ -5,7 +5,7 @@ Creates default admin user if it doesn't exist in PostgreSQL
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 from app.database import SessionLocal, Base, engine
-from app.models import User, UserRole
+from app.models import User, UserRole, Report, AuditLog
 from app.auth import get_password_hash
 from app.config import settings
 import logging
@@ -17,7 +17,7 @@ def init_db():
     try:
         # Create all tables
         Base.metadata.create_all(bind=engine)
-        logger.info("✅ Created all database tables")
+        logger.info("✅ Created all database tables (users, videos, frames, reports, audit_logs)")
         
         # Add missing columns to existing tables
         try:

@@ -1,4 +1,5 @@
-from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Query
+from fastapi.responses import FileResponse, RedirectResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from datetime import datetime
@@ -6,9 +7,10 @@ import os
 
 from app.database import get_db
 from app.models import User, Video, PredictionStatus
-from app.schemas import VideoResponse
-from app.auth import get_current_user
-from app.utils import save_upload_file, get_file_size, validate_file_type, upload_to_cloudinary
+from app.services.audit_log import record_audit_log
+from app.schemas import VideoResponse, PaginatedVideoListResponse
+from app.auth import get_current_user, get_current_user_flexible
+from app.utils import save_upload_file, get_file_size, validate_file_type, upload_to_cloudinary, strip_frame_images
 from app.config import settings
 
 router = APIRouter()
@@ -84,6 +86,17 @@ async def upload_video(
     db.add(new_video)
     db.commit()
     db.refresh(new_video)
+
+    record_audit_log(
+        user_id=current_user.id,
+        action="video.upload",
+        entity_type="video",
+        entity_id=new_video.id,
+        details={
+            "filename": new_video.original_filename,
+            "file_size": new_video.file_size,
+        },
+    )
     
     # Convert ORM object to schema, handling frame_analysis property
     video_dict = {
@@ -95,7 +108,7 @@ async def upload_video(
         'status': new_video.status,
         'is_deepfake': new_video.is_deepfake,
         'confidence_score': new_video.confidence_score,
-        'prediction_details': new_video.prediction_details,
+        'prediction_details': None,
         'cloud_url': new_video.cloud_url,
         'uploaded_at': new_video.uploaded_at,
         'processed_at': new_video.processed_at,
@@ -104,19 +117,25 @@ async def upload_video(
     
     return VideoResponse(**video_dict)
 
-@router.get("/videos", response_model=list[VideoResponse])
+@router.get("/videos", response_model=PaginatedVideoListResponse)
 async def get_user_videos(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
-    skip: int = 0,
-    limit: int = 10
+    skip: int = Query(0, ge=0),
+    limit: int = Query(10, ge=1, le=100)
 ):
-    """Get all videos uploaded by current user"""
-    videos = db.query(Video).filter(
-        Video.user_id == current_user.id
-    ).order_by(Video.uploaded_at.desc()).offset(skip).limit(limit).all()
+    """Get paginated videos uploaded by current user"""
+    base_query = db.query(Video).filter(Video.user_id == current_user.id)
+    total = base_query.count()
+
+    videos = (
+        base_query
+        .order_by(Video.uploaded_at.desc())
+        .offset(skip)
+        .limit(limit)
+        .all()
+    )
     
-    # Convert ORM objects to schemas, handling frame_analysis property
     result = []
     for video in videos:
         video_dict = {
@@ -128,15 +147,58 @@ async def get_user_videos(
             'status': video.status,
             'is_deepfake': video.is_deepfake,
             'confidence_score': video.confidence_score,
-            'prediction_details': video.prediction_details,
+            'prediction_details': None,
             'cloud_url': video.cloud_url,
             'uploaded_at': video.uploaded_at,
             'processed_at': video.processed_at,
-            'frame_analysis': video.frame_analysis  # Explicitly get property
+            'frame_analysis': None,
         }
         result.append(VideoResponse(**video_dict))
     
-    return result
+    return {
+        "items": result,
+        "total": total,
+        "skip": skip,
+        "limit": limit,
+    }
+
+@router.get("/videos/latest-completed", response_model=VideoResponse)
+async def get_latest_completed_video(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Return the user's most recently completed analysis."""
+    video = (
+        db.query(Video)
+        .filter(
+            Video.user_id == current_user.id,
+            Video.status == PredictionStatus.COMPLETED.value,
+        )
+        .order_by(Video.processed_at.desc().nullslast(), Video.uploaded_at.desc())
+        .first()
+    )
+
+    if not video:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No completed analyses found",
+        )
+
+    return VideoResponse(
+        id=video.id,
+        filename=video.filename,
+        original_filename=video.original_filename,
+        file_size=video.file_size,
+        file_type=video.file_type,
+        status=video.status,
+        is_deepfake=video.is_deepfake,
+        confidence_score=video.confidence_score,
+        prediction_details=None,
+        cloud_url=video.cloud_url,
+        uploaded_at=video.uploaded_at,
+        processed_at=video.processed_at,
+        frame_analysis=None,
+    )
 
 @router.get("/videos/{video_id}", response_model=VideoResponse)
 async def get_video(
@@ -166,14 +228,62 @@ async def get_video(
         'status': video.status,
         'is_deepfake': video.is_deepfake,
         'confidence_score': video.confidence_score,
-        'prediction_details': video.prediction_details,
+        'prediction_details': None,
         'cloud_url': video.cloud_url,
         'uploaded_at': video.uploaded_at,
         'processed_at': video.processed_at,
-        'frame_analysis': video.frame_analysis  # Explicitly get property
+        'frame_analysis': None,
     }
     
     return VideoResponse(**video_dict)
+
+
+def _resolve_local_video_path(video: Video) -> str | None:
+    candidates = []
+    if video.file_path:
+        candidates.append(video.file_path)
+        if not os.path.isabs(video.file_path):
+            backend_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+            candidates.append(os.path.join(backend_dir, video.file_path))
+    if video.filename:
+        candidates.append(os.path.join(settings.UPLOAD_DIR, video.filename))
+
+    for candidate in candidates:
+        if candidate and os.path.isfile(candidate):
+            return candidate
+    return None
+
+
+@router.get("/videos/{video_id}/stream")
+async def stream_video(
+    video_id: int,
+    current_user: User = Depends(get_current_user_flexible),
+    db: Session = Depends(get_db),
+):
+    """Stream a user's video from Cloudinary or local storage."""
+    video = db.query(Video).filter(
+        Video.id == video_id,
+        Video.user_id == current_user.id,
+    ).first()
+
+    if not video:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Video not found",
+        )
+
+    if video.cloud_url:
+        return RedirectResponse(url=video.cloud_url, status_code=307)
+
+    local_path = _resolve_local_video_path(video)
+    if local_path:
+        return FileResponse(local_path, media_type="video/mp4", filename=video.filename)
+
+    raise HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND,
+        detail="Video file is not available on the server. Please re-upload the video.",
+    )
+
 
 @router.delete("/videos/{video_id}")
 async def delete_video(

@@ -132,6 +132,44 @@ class Frame(Base):
     def __repr__(self):
         return f"<Frame(id={self.id}, video_id={self.video_id}, frame={self.frame_number})>"
 
+
+class Report(Base):
+    """Thin report record — full analysis data stays on the linked video."""
+    __tablename__ = "reports"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    video_id = Column(Integer, ForeignKey("videos.id"), nullable=False, unique=True, index=True)
+    verdict = Column(String(50), nullable=True)
+    is_deepfake = Column(Boolean, nullable=True)
+    confidence_score = Column(Float, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    user = relationship("User")
+    video = relationship("Video")
+
+    def __repr__(self):
+        return f"<Report(id={self.id}, video_id={self.video_id}, verdict={self.verdict})>"
+
+
+class AuditLog(Base):
+    __tablename__ = "audit_logs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+    action = Column(String(100), nullable=False, index=True)
+    entity_type = Column(String(50), nullable=True)
+    entity_id = Column(Integer, nullable=True)
+    details = Column(JSON, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+
+    user = relationship("User")
+
+    def __repr__(self):
+        return f"<AuditLog(id={self.id}, action={self.action})>"
+
+
 # Helper functions for Base64 encoding
 def encode_image_to_base64(image_bytes: bytes) -> str:
     """Convert image bytes to Base64 string"""
