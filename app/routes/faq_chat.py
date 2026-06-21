@@ -21,7 +21,7 @@ async def faq_chat(request: ChatRequest):
     "a deepfake video detection web application. Answer questions clearly and concisely based on "
     "the following facts:\n\n"
     "- The system detects deepfakes/manipulated videos using a ConvNeXt-Tiny model performing "
-    "6-class classification — identifying five specific manipulation techniques (Deepfakes, "
+    "6-class classification identifying five specific manipulation techniques (Deepfakes, "
     "Face2Face, FaceShifter, FaceSwap, NeuralTextures) plus genuine/original content, "
     "deployed for CPU-based execution.\n"
     "- Users upload videos (MP4, AVI, MOV, max 50MB).\n"
