@@ -8,15 +8,10 @@ class Settings(BaseSettings):
     DATABASE_URL: str = "postgresql://user:password@localhost:5432/deepfake_db"
 
     # App / Frontend
-    FRONTEND_URL: str = "https://deep-fake.dev"
-
-    # CORS / External service URLs (comma-separated frontend origins)
-    CORS_ORIGINS: str = (
-        "http://localhost:3000,"
-        "https://deep-fake.dev,"
-        "https://www.deep-fake.dev,"
-        "https://deepfake-detection-ovj5.onrender.com"
-    )
+    FRONTEND_URL: str = "http://localhost:3000"
+    
+    # CORS / External service URLs
+    CORS_ORIGINS: str = "https://deepfake-detection-ovj5.onrender.com"
     MODEL_API_URL: str = "https://softwareengineer26-deepfake-model.hf.space"
     MODEL_API_URLS: str = ""
     
@@ -50,7 +45,7 @@ class Settings(BaseSettings):
     # Email (Resend)
     EMAIL_API_KEY: str = ""
     FROM_EMAIL: str = ""
-    ADMIN_EMAIL: str = ""
+    ADMIN_NOTIFICATION_EMAIL: str = ""
 
     
     class Config:
