@@ -17,7 +17,7 @@ async def submit_contact_form(payload: ContactRequest):
             email=payload.email,
             subject=payload.subject,
             message=payload.message,
-            admin_email=settings.ADMIN_EMAIL,
+            admin_email=settings.ADMIN_NOTIFICATION_EMAIL,
         )
     except ValueError as exc:
         raise HTTPException(

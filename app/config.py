@@ -56,7 +56,7 @@ class Settings(BaseSettings):
     # Email (Resend)
     EMAIL_API_KEY: str = ""
     FROM_EMAIL: str = ""
-    ADMIN_EMAIL: str = ""
+    ADMIN_NOTIFICATION_EMAIL: str = ""
 
     
     class Config:
