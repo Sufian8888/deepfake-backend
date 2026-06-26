@@ -17,6 +17,12 @@ class Settings(BaseSettings):
         "https://www.deep-fake.dev,"
         "https://deepfake-detection-ovj5.onrender.com"
     )
+    # Always allowed in production even if CORS_ORIGINS env on Render is incomplete
+    CANONICAL_FRONTEND_ORIGINS: str = (
+        "https://deep-fake.dev,"
+        "https://www.deep-fake.dev,"
+        "https://deepfake-detection-ovj5.onrender.com"
+    )
     MODEL_API_URL: str = "https://softwareengineer26-deepfake-model.hf.space"
     MODEL_API_URLS: str = ""
     

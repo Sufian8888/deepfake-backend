@@ -70,17 +70,33 @@ async def log_request_duration(request: Request, call_next):
     return response
 
 cors_origins = settings.CORS_ORIGINS
-allowed_origins = {origin.strip() for origin in cors_origins.split(",") if origin.strip()}
+canonical_origins = settings.CANONICAL_FRONTEND_ORIGINS
 
-frontend_url = settings.FRONTEND_URL.rstrip("/")
+
+def parse_cors_origins(raw: str) -> set[str]:
+    origins: set[str] = set()
+    for entry in raw.split(","):
+        origin = entry.strip().strip('"').strip("'").rstrip("/")
+        if origin:
+            origins.add(origin)
+    return origins
+
+
+allowed_origins = parse_cors_origins(cors_origins)
+allowed_origins.update(parse_cors_origins(canonical_origins))
+
+frontend_url = settings.FRONTEND_URL.strip().strip('"').strip("'").rstrip("/")
 if frontend_url:
     allowed_origins.add(frontend_url)
     if frontend_url.startswith("http://localhost:"):
         allowed_origins.add(frontend_url.replace("http://localhost:", "http://127.0.0.1:"))
     elif frontend_url.startswith("http://127.0.0.1:"):
         allowed_origins.add(frontend_url.replace("http://127.0.0.1:", "http://localhost:"))
+    elif frontend_url.startswith("https://") and not frontend_url.startswith("https://www."):
+        allowed_origins.add(f"https://www.{frontend_url[len('https://'):]}")
 
 allowed_origins = sorted(allowed_origins)
+logger.info("CORS allowed origins: %s", ", ".join(allowed_origins))
 
 # Allow LAN/private IPs during local dev (e.g. http://192.168.x.x:3000 from `next dev`)
 is_local_dev = not is_production

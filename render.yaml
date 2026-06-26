@@ -7,6 +7,8 @@ services:
     envVars:
       - key: CORS_ORIGINS
         value: http://localhost:3000,https://deep-fake.dev,https://www.deep-fake.dev,https://deepfake-detection-ovj5.onrender.com
+      - key: CANONICAL_FRONTEND_ORIGINS
+        value: https://deep-fake.dev,https://www.deep-fake.dev,https://deepfake-detection-ovj5.onrender.com
       - key: FRONTEND_URL
         value: https://deep-fake.dev
 
